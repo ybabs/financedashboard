@@ -1,7 +1,6 @@
 "use client";
 
 import { use } from "react";
-// 1. Swap the font to Plus Jakarta Sans
 import { Plus_Jakarta_Sans } from "next/font/google";
 import {
     MagnifyingGlass,
@@ -13,11 +12,9 @@ import {
     FileText,
     Gear,
     Export,
-    Graph,
     DotsThreeCircle
 } from "@phosphor-icons/react/dist/ssr";
 
-// Initialize the new font
 const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"] });
 
 export default function CompanyLayout({
@@ -31,17 +28,14 @@ export default function CompanyLayout({
     const companyId = resolvedParams.companyId;
 
     return (
-        // 2. Apply the new font here and ensure antialiasing for crisp text
         <div className={`${jakarta.className} flex h-screen bg-[#f4f6f8] text-[#1c1c1c] overflow-hidden w-full antialiased`}>
 
             {/* SIDEBAR */}
             <aside className="w-[260px] bg-white shadow-[4px_0_24px_rgba(0,0,0,0.02)] flex flex-col shrink-0 z-20">
 
-                {/* LOGO - shrink-0 ensures it never squishes */}
+                {/* LOGO AREA - Replaced with our custom SVG */}
                 <div className="h-20 flex items-center px-6 shrink-0">
-                    <div className="w-8 h-8 bg-[#1e2d4d] rounded-xl flex items-center justify-center mr-3 shadow-sm">
-                        <Graph weight="bold" className="text-white w-5 h-5" />
-                    </div>
+                    <CapitalBaseLogo className="w-8 h-8 mr-3 drop-shadow-sm" />
                     <span className="font-bold text-lg tracking-tight text-[#1c1c1c]">CapitalBase</span>
                 </div>
 
@@ -50,7 +44,7 @@ export default function CompanyLayout({
                     <span className="text-[11px] font-bold text-[#a0a0a0] uppercase tracking-wider">Workspace</span>
                 </div>
 
-                {/* MAIN NAV - flex-1 allows this middle section to grow and scroll if needed */}
+                {/* MAIN NAV */}
                 <nav className="flex-1 overflow-y-auto px-4 space-y-1.5 pb-4">
                     <SidebarItem icon={ChartLineUp} label="Terminal" active />
                     <SidebarItem icon={Scales} label="Compare Entities" />
@@ -58,7 +52,7 @@ export default function CompanyLayout({
                     <SidebarItem icon={FileText} label="Reports" />
                 </nav>
 
-                {/* SETTINGS - Pinned safely to the bottom */}
+                {/* SETTINGS */}
                 <div className="p-4 shrink-0 border-t border-slate-100 bg-white">
                     <SidebarItem icon={Gear} label="Settings" />
                 </div>
@@ -67,7 +61,7 @@ export default function CompanyLayout({
             {/* MAIN CONTENT AREA */}
             <div className="flex-1 flex flex-col overflow-hidden relative">
 
-                {/* GLOBAL HEADER: Search & Profile */}
+                {/* GLOBAL HEADER */}
                 <header className="h-20 px-8 flex items-center justify-between shrink-0">
                     <div className="w-[400px] h-11 bg-white rounded-full shadow-[0_2px_10px_rgba(0,0,0,0.03)] flex items-center px-5 transition-all focus-within:ring-2 focus-within:ring-[#5193e0]/20">
                         <MagnifyingGlass weight="bold" className="text-[#a0a0a0] w-4 h-4 mr-3" />
@@ -101,7 +95,6 @@ export default function CompanyLayout({
                 {/* SCROLLING CANVAS */}
                 <div className="flex-1 overflow-y-auto px-8 pb-10 flex flex-col">
 
-                    {/* Entity Identity Header */}
                     <div className="mb-6 flex justify-between items-end shrink-0">
                         <div className="flex items-center space-x-4">
                             <div className="w-14 h-14 bg-indigo-50 text-indigo-700 rounded-2xl flex items-center justify-center font-bold text-xl shadow-sm border border-indigo-100/50">
@@ -123,7 +116,6 @@ export default function CompanyLayout({
                         </button>
                     </div>
 
-                    {/* PAGE CONTENT */}
                     <main className="flex-1">
                         {children}
                     </main>
@@ -162,5 +154,28 @@ function TabPill({ label, isActive }: { label: string, isActive: boolean }) {
                 <X weight="bold" className="w-3 h-3" />
             </button>
         </div>
+    );
+}
+
+// --- CUSTOM SVG LOGO ---
+function CapitalBaseLogo({ className }: { className?: string }) {
+    return (
+        <svg
+            viewBox="0 0 64 64"
+            fill="none"
+            xmlns="http://www.w3.org/2000/svg"
+            className={className}
+        >
+            <rect width="64" height="64" rx="16" fill="url(#logo-gradient)" />
+            <rect x="16" y="34" width="8" height="12" rx="4" fill="#ffffff" opacity="0.6" />
+            <rect x="28" y="26" width="8" height="20" rx="4" fill="#ffffff" opacity="0.85" />
+            <rect x="40" y="18" width="8" height="28" rx="4" fill="#72b1e8" />
+            <defs>
+                <linearGradient id="logo-gradient" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+                    <stop stopColor="#5193e0" />
+                    <stop offset="1" stopColor="#1e2d4d" />
+                </linearGradient>
+            </defs>
+        </svg>
     );
 }
