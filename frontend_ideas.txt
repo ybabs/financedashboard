@@ -1,0 +1,70 @@
+
+Dashboard: should reflect what is most important to the user
+
+I'm thinking something like 
+  - assets
+  - cash in bank
+  - buyability score
+  - yearly trends
+
+Can you suggest other things that should be on the dashboard, we don't want to clog the grid and make it too busy though.
+
+The main page should be 2 columns x 2 rows and metric like information should go to the bottom
+
+The top of the dashboard should have the ability to tab information where each new tab is a company you're lookin for. The search should be at the top just next to the sidebar. 
+
+We also want the ability to compare two companies. So there should be a compare pagr. 
+
+The graphs should be simple line graphs for hngs like net profit, assets etc, We don't want anything too busy, 
+
+We want siple toast notifications and are willing to see inspirations for popovers and modals. 
+
+there should be absolutely no emojis used! professional icons
+
+Colour theme should be a gradient. Im thinkibg a black gradient or white gradient with darker undertones 
+
+Landing page should have graphics in the background and not text
+
+For the colour palette, let us follow the 60.30/10 rule/ 
+
+The neutral foundation: 
+- 4 layers of backgrounf, at least 1 or 2 strokes and three text variants The frame (the area of the side bar and parts without main content should be slightly darker,  with a 2/3% navy blue with the rest white.
+
+The main content page border with the sidebar should be at least 85% whitw to define the edge, as you know the more important a button s, the darker it is. 
+
+Text:
+  Darker colours are 11% white majority of text should fall between 15-20% white
+  Subtex is around 30 - 40% white
+
+Layer 2: Functional Accent
+
+- Not a single colour, make it a scale of lightest to darkest:
+
+'astronaut': {
+    '50': '#f1f7fd',
+    '100': '#dfedfa',
+    '200': '#c6e0f7',
+    '300': '#a0cdf0',
+    '400': '#72b1e8',
+    '500': '#5193e0',
+    '600': '#3d79d3',
+    '700': '#3365c2',
+    '800': '#2f539e',
+    '900': '#274172',
+    '950': '#1e2d4d',
+},
+
+
+The 500 - 600 should be the main colour, hover = 700, link should be 400
+
+FOr dark mode, double the distanc3, 4-6% between colours instead of 2% for light colours. 
+
+Chars/Notifications
+
+- Semantic COmmunication
+ - Destructive actions should be red
+  - charts- Use a OKLCH Palette
+- Set lightness and chrome
+ - incremenet hue by 25-30%
+
+Theme Engine: every neutral plug in hex value, drop in lightness by 0.03, increase chroma by 0,02 adjust hue to get any theme output
