@@ -4,6 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from core.config import settings
 from api.routers.companies import router as companies_router
 from api.routers.workspace import router as workspace_router
+from api.routers.v1_companies import router as v1_companies_router
+from api.routers.v1_lists import router as v1_lists_router
+from api.routers.v1_system import router as v1_system_router
 
 app = FastAPI(title="CapitalBase API")
 
@@ -21,3 +24,6 @@ async def root():
 
 app.include_router(companies_router)
 app.include_router(workspace_router)
+app.include_router(v1_companies_router)
+app.include_router(v1_lists_router)
+app.include_router(v1_system_router)
