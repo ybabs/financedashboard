@@ -1,0 +1,118 @@
+from __future__ import annotations
+
+from collections import defaultdict
+from dataclasses import dataclass
+from datetime import date
+from decimal import Decimal
+
+from sqlalchemy import asc, select, text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from core.financial_metrics import normalize_tag_name
+from models.financial_metric import FinancialMetricDictionary
+
+
+@dataclass(slots=True)
+class MetricDefinition:
+    metric_key: str
+    tags: list[str]
+
+
+class FinancialsRepository:
+    def __init__(self, session: AsyncSession):
+        self._session = session
+
+    async def list_metric_definitions(self) -> list[MetricDefinition]:
+        stmt = (
+            select(FinancialMetricDictionary)
+            .where(FinancialMetricDictionary.is_active.is_(True))
+            .order_by(
+                asc(FinancialMetricDictionary.metric_key),
+                asc(FinancialMetricDictionary.priority),
+                asc(FinancialMetricDictionary.xbrl_tag_normalized),
+            )
+        )
+        rows = (await self._session.execute(stmt)).scalars().all()
+        grouped: dict[str, list[str]] = defaultdict(list)
+        for row in rows:
+            grouped[row.metric_key].append(row.xbrl_tag_normalized)
+        return [MetricDefinition(metric_key=k, tags=v) for k, v in grouped.items()]
+
+    async def list_metric_keys(self) -> list[str]:
+        defs = await self.list_metric_definitions()
+        return [d.metric_key for d in defs]
+
+    async def get_company_metric_series(
+        self,
+        company_number: str,
+        metric_key: str,
+        max_rows: int = 10000,
+    ) -> list[dict]:
+        metric_stmt = (
+            select(FinancialMetricDictionary)
+            .where(
+                FinancialMetricDictionary.metric_key == metric_key,
+                FinancialMetricDictionary.is_active.is_(True),
+            )
+            .order_by(asc(FinancialMetricDictionary.priority))
+        )
+        metric_rows = (await self._session.execute(metric_stmt)).scalars().all()
+        if not metric_rows:
+            raise ValueError("Unsupported metric")
+
+        tag_priority = {row.xbrl_tag_normalized: int(row.priority) for row in metric_rows}
+
+        facts_stmt = text(
+            """
+            SELECT
+              f.name_raw,
+              f.numeric_value,
+              c.period_end,
+              c.period_instant
+            FROM ixbrl_documents d
+            JOIN ixbrl_facts f ON f.document_id = d.id
+            LEFT JOIN ixbrl_contexts c
+              ON c.document_id = d.id
+             AND c.context_id = f.context_ref
+            WHERE d.company_number = :company_number
+              AND f.numeric_value IS NOT NULL
+            ORDER BY COALESCE(c.period_end, c.period_instant) DESC NULLS LAST
+            LIMIT :row_limit
+            """
+        )
+        fact_rows = (
+            await self._session.execute(
+                facts_stmt,
+                {"company_number": company_number, "row_limit": max_rows},
+            )
+        ).all()
+
+        # Normalize by period and choose best-priority dictionary tag set per period.
+        by_period: dict[date, dict[int, list[Decimal]]] = defaultdict(lambda: defaultdict(list))
+        for row in fact_rows:
+            normalized = normalize_tag_name(row.name_raw)
+            priority = tag_priority.get(normalized)
+            if priority is None:
+                continue
+
+            period = row.period_end or row.period_instant
+            if period is None:
+                continue
+            by_period[period][priority].append(row.numeric_value)
+
+        points: list[dict] = []
+        for period in sorted(by_period):
+            values_by_priority = by_period[period]
+            best_priority = min(values_by_priority.keys())
+            values = values_by_priority[best_priority]
+            avg_value = sum(values) / Decimal(len(values))
+            points.append(
+                {
+                    "period_date": period,
+                    "value": avg_value,
+                    "source_count": len(values),
+                    "priority": best_priority,
+                }
+            )
+        return points
+

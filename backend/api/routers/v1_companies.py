@@ -5,9 +5,9 @@ from dataclasses import asdict
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from core.financial_metrics import METRIC_TAGS
 from db.session import get_session
 from repositories.companies_repo import CompaniesRepository
+from repositories.financials_repo import FinancialsRepository
 from schemas.v1 import (
     V1CompanyCompareResponse,
     V1CompanyCompareSide,
@@ -125,14 +125,18 @@ async def get_financial_series(
     session: AsyncSession = Depends(get_session),
 ):
     metric_key = metric.strip().lower()
-    if metric_key not in METRIC_TAGS:
+    financials_repo = FinancialsRepository(session)
+    supported_metrics = await financials_repo.list_metric_keys()
+    if metric_key not in supported_metrics:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported metric. Allowed: {', '.join(sorted(METRIC_TAGS))}",
+            detail=f"Unsupported metric. Allowed: {', '.join(sorted(supported_metrics))}",
         )
 
-    repo = CompaniesRepository(session)
-    points = await repo.get_financial_series(company_number=company_number.strip().upper(), metric=metric_key)
+    points = await financials_repo.get_company_metric_series(
+        company_number=company_number.strip().upper(),
+        metric_key=metric_key,
+    )
     return V1FinancialSeriesResponse(
         company_number=company_number.strip().upper(),
         metric=metric_key,

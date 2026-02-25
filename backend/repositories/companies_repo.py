@@ -1,12 +1,9 @@
 from sqlalchemy.ext.asyncio import AsyncSession
-from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import Float, asc, cast, desc, func, or_, select, text
+from sqlalchemy import Float, asc, cast, desc, func, or_, select
 
-from core.financial_metrics import METRIC_TAGS, normalize_tag_name
 from models.company import Company
 from models.psc_person import PscPerson
 
@@ -94,54 +91,6 @@ class CompaniesRepository:
             "psc_count": int(psc_count or 0),
             "current_ratio": current_ratio,
         }
-
-    async def get_financial_series(self, company_number: str, metric: str, max_rows: int = 5000):
-        metric_key = metric.strip().lower()
-        allowed_tags = METRIC_TAGS.get(metric_key)
-        if not allowed_tags:
-            raise ValueError("Unsupported metric")
-
-        stmt = text(
-            """
-            SELECT
-              f.name_raw,
-              f.numeric_value,
-              c.period_end,
-              c.period_instant
-            FROM ixbrl_documents d
-            JOIN ixbrl_facts f ON f.document_id = d.id
-            LEFT JOIN ixbrl_contexts c
-              ON c.document_id = d.id
-             AND c.context_id = f.context_ref
-            WHERE d.company_number = :company_number
-              AND f.numeric_value IS NOT NULL
-            ORDER BY COALESCE(c.period_end, c.period_instant) DESC NULLS LAST
-            LIMIT :row_limit
-            """
-        )
-        rows = (
-            await self._session.execute(
-                stmt,
-                {"company_number": company_number, "row_limit": max_rows},
-            )
-        ).all()
-
-        by_period: dict[date, list[Decimal]] = defaultdict(list)
-        for row in rows:
-            if normalize_tag_name(row.name_raw) not in allowed_tags:
-                continue
-            period = row.period_end or row.period_instant
-            if period is None:
-                continue
-            by_period[period].append(row.numeric_value)
-
-        points = []
-        for period, values in sorted(by_period.items()):
-            if not values:
-                continue
-            avg_value = sum(values) / Decimal(len(values))
-            points.append({"period_date": period, "value": avg_value})
-        return points
 
     async def compare_companies(self, left: str, right: str):
         left_company = await self.get_company(left)

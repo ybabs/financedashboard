@@ -65,7 +65,15 @@ async def test_v1_company_overview_ok(client, monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_v1_financial_series_rejects_unknown_metric(client):
+async def test_v1_financial_series_rejects_unknown_metric(client, monkeypatch):
+    class FakeFinancialsRepo:
+        def __init__(self, session):
+            self.session = session
+
+        async def list_metric_keys(self):
+            return ["net_profit", "assets"]
+
+    monkeypatch.setattr(v1_companies_router, "FinancialsRepository", FakeFinancialsRepo)
     res = await client.get(
         "/v1/companies/09092149/financials/series",
         params={"metric": "unknown_metric"},
@@ -76,17 +84,20 @@ async def test_v1_financial_series_rejects_unknown_metric(client):
 
 @pytest.mark.anyio
 async def test_v1_financial_series_ok(client, monkeypatch):
-    class FakeRepo:
+    class FakeFinancialsRepo:
         def __init__(self, session):
             self.session = session
 
-        async def get_financial_series(self, company_number: str, metric: str):
+        async def list_metric_keys(self):
+            return ["net_profit", "assets"]
+
+        async def get_company_metric_series(self, company_number: str, metric_key: str):
             return [
                 {"period_date": date(2023, 12, 31), "value": Decimal("120.5")},
                 {"period_date": date(2024, 12, 31), "value": Decimal("150.0")},
             ]
 
-    monkeypatch.setattr(v1_companies_router, "CompaniesRepository", FakeRepo)
+    monkeypatch.setattr(v1_companies_router, "FinancialsRepository", FakeFinancialsRepo)
     res = await client.get(
         "/v1/companies/09092149/financials/series",
         params={"metric": "net_profit"},
@@ -141,4 +152,3 @@ async def test_v1_compare_ok(client, monkeypatch):
     body = res.json()
     assert body["left"]["company_number"] == "A1"
     assert body["right"]["company_number"] == "B2"
-

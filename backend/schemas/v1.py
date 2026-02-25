@@ -61,6 +61,15 @@ class V1FinancialSeriesResponse(BaseModel):
     points: list[V1FinancialSeriesPoint] = Field(default_factory=list)
 
 
+class V1FinancialMetricDefinition(BaseModel):
+    metric_key: str
+    tags: list[str] = Field(default_factory=list)
+
+
+class V1FinancialMetricCatalogResponse(BaseModel):
+    items: list[V1FinancialMetricDefinition] = Field(default_factory=list)
+
+
 class V1CompanyCompareSide(BaseModel):
     company_number: str
     name: str
@@ -147,4 +156,3 @@ class V1IngestHealthResponse(BaseModel):
     max_lag_seconds: float | None = None
     jobs: list[V1IngestJobHealth] = Field(default_factory=list)
     artifacts: V1IngestArtifactSummary
-
