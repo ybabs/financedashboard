@@ -7,6 +7,7 @@ from decimal import Decimal
 
 from sqlalchemy import asc, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import ProgrammingError
 
 from core.financial_metrics import normalize_tag_name
 from models.financial_metric import FinancialMetricDictionary
@@ -61,6 +62,55 @@ class FinancialsRepository:
             raise ValueError("Unsupported metric")
 
         tag_priority = {row.xbrl_tag_normalized: int(row.priority) for row in metric_rows}
+        mv_points = await self._get_series_from_materialized_view(
+            company_number=company_number,
+            metric_key=metric_key,
+        )
+        if mv_points:
+            return mv_points
+
+        return await self._get_series_from_raw(
+            company_number=company_number,
+            tag_priority=tag_priority,
+            max_rows=max_rows,
+        )
+
+    async def _get_series_from_materialized_view(self, company_number: str, metric_key: str) -> list[dict]:
+        mv_stmt = text(
+            """
+            SELECT period_date, value, source_count, priority
+            FROM financial_metric_series
+            WHERE company_number = :company_number
+              AND metric_key = :metric_key
+            ORDER BY period_date ASC
+            """
+        )
+        try:
+            rows = (
+                await self._session.execute(
+                    mv_stmt,
+                    {"company_number": company_number, "metric_key": metric_key},
+                )
+            ).all()
+        except ProgrammingError:
+            # Materialized view may not exist / be populated in early environments.
+            return []
+        return [
+            {
+                "period_date": row.period_date,
+                "value": row.value,
+                "source_count": int(row.source_count or 0),
+                "priority": int(row.priority or 0),
+            }
+            for row in rows
+        ]
+
+    async def _get_series_from_raw(
+        self,
+        company_number: str,
+        tag_priority: dict[str, int],
+        max_rows: int,
+    ) -> list[dict]:
 
         facts_stmt = text(
             """
@@ -116,3 +166,10 @@ class FinancialsRepository:
             )
         return points
 
+    async def refresh_materialized_series(self, concurrently: bool = True) -> None:
+        statement = (
+            "REFRESH MATERIALIZED VIEW CONCURRENTLY financial_metric_series"
+            if concurrently
+            else "REFRESH MATERIALIZED VIEW financial_metric_series"
+        )
+        await self._session.execute(text(statement))
