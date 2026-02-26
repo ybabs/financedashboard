@@ -5,6 +5,8 @@ from dataclasses import asdict
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.dependencies.auth import get_auth_context
+from core.pagination import decode_offset_cursor, encode_offset_cursor
 from db.session import get_session
 from repositories.companies_repo import CompaniesRepository
 from repositories.financials_repo import FinancialsRepository
@@ -21,17 +23,25 @@ from schemas.v1 import (
     V1PscListResponse,
 )
 
-router = APIRouter(prefix="/v1/companies", tags=["v1-companies"])
+router = APIRouter(
+    prefix="/v1/companies",
+    tags=["v1-companies"],
+    dependencies=[Depends(get_auth_context)],
+)
 
 
 @router.get("/search", response_model=V1CompanySearchResponse)
 async def search_companies(
     q: str = Query(..., min_length=2, description="Search query"),
     limit: int = Query(10, ge=1, le=50),
+    cursor: str | None = Query(default=None, description="Pagination cursor"),
     session: AsyncSession = Depends(get_session),
 ):
+    offset = decode_offset_cursor(cursor)
     repo = CompaniesRepository(session)
-    rows = await repo.search(q=q, limit=limit)
+    rows = await repo.search(q=q, limit=limit + 1, offset=offset)
+    page_rows = rows[:limit]
+    next_cursor = encode_offset_cursor(offset + limit) if len(rows) > limit else None
     return V1CompanySearchResponse(
         results=[
             V1CompanySearchItem(
@@ -40,8 +50,9 @@ async def search_companies(
                 status=r.status,
                 score=round(float(r.sim_score or 0.0), 3),
             )
-            for r in rows
-        ]
+            for r in page_rows
+        ],
+        next_cursor=next_cursor,
     )
 
 

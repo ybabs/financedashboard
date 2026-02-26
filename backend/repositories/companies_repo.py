@@ -28,7 +28,7 @@ class CompaniesRepository:
     def __init__(self, session: AsyncSession):
         self._session = session
 
-    async def search(self, q: str, limit: int = 10):
+    async def search(self, q: str, limit: int = 10, offset: int = 0):
         sim_score = func.similarity(Company.name, q)
 
         stmt = (
@@ -49,8 +49,10 @@ class CompaniesRepository:
                 desc(Company.company_number == q),  # exact ID to top
                 desc(sim_score),
                 asc(Company.name),
+                asc(Company.company_number),
             )
             .limit(limit)
+            .offset(offset)
         )
 
         result = await self._session.execute(stmt)

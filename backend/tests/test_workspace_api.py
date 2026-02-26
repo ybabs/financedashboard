@@ -8,14 +8,14 @@ import api.routers.workspace as workspace_router
 
 
 @pytest.mark.anyio
-async def test_workspace_requires_tenant_header(client):
+async def test_workspace_requires_auth(client):
     res = await client.get("/api/workspace/lists")
-    assert res.status_code == 400
-    assert "Missing required header" in res.json()["detail"]
+    assert res.status_code == 401
+    assert "Missing bearer token" in res.json()["detail"]
 
 
 @pytest.mark.anyio
-async def test_get_lists_ok(client, monkeypatch):
+async def test_get_lists_ok(client, monkeypatch, make_auth_headers):
     class FakeRepo:
         def __init__(self, session, tenant_id):
             self.session = session
@@ -33,7 +33,7 @@ async def test_get_lists_ok(client, monkeypatch):
             ]
 
     monkeypatch.setattr(workspace_router, "WorkspaceRepository", FakeRepo)
-    res = await client.get("/api/workspace/lists", headers={"X-Tenant-Id": "acme"})
+    res = await client.get("/api/workspace/lists", headers=make_auth_headers("acme"))
     assert res.status_code == 200
     data = res.json()
     assert len(data["items"]) == 1
@@ -41,10 +41,10 @@ async def test_get_lists_ok(client, monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_create_list_blank_name_400(client):
+async def test_create_list_blank_name_400(client, make_auth_headers):
     res = await client.post(
         "/api/workspace/lists",
-        headers={"X-Tenant-Id": "acme"},
+        headers=make_auth_headers("acme"),
         json={"name": " "},
     )
     assert res.status_code == 400
@@ -52,7 +52,7 @@ async def test_create_list_blank_name_400(client):
 
 
 @pytest.mark.anyio
-async def test_create_list_conflict_409(client, monkeypatch):
+async def test_create_list_conflict_409(client, monkeypatch, make_auth_headers):
     class FakeRepo:
         def __init__(self, session, tenant_id):
             self.session = session
@@ -64,7 +64,7 @@ async def test_create_list_conflict_409(client, monkeypatch):
     monkeypatch.setattr(workspace_router, "WorkspaceRepository", FakeRepo)
     res = await client.post(
         "/api/workspace/lists",
-        headers={"X-Tenant-Id": "acme"},
+        headers=make_auth_headers("acme"),
         json={"name": "My Targets"},
     )
     assert res.status_code == 409
@@ -72,7 +72,7 @@ async def test_create_list_conflict_409(client, monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_add_list_item_duplicate_409(client, monkeypatch):
+async def test_add_list_item_duplicate_409(client, monkeypatch, make_auth_headers):
     class FakeRepo:
         def __init__(self, session, tenant_id):
             self.session = session
@@ -84,7 +84,7 @@ async def test_add_list_item_duplicate_409(client, monkeypatch):
     monkeypatch.setattr(workspace_router, "WorkspaceRepository", FakeRepo)
     res = await client.post(
         "/api/workspace/lists/1/items",
-        headers={"X-Tenant-Id": "acme"},
+        headers=make_auth_headers("acme"),
         json={"company_number": "09092149"},
     )
     assert res.status_code == 409
@@ -92,7 +92,7 @@ async def test_add_list_item_duplicate_409(client, monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_add_list_item_fk_409(client, monkeypatch):
+async def test_add_list_item_fk_409(client, monkeypatch, make_auth_headers):
     class FakeRepo:
         def __init__(self, session, tenant_id):
             self.session = session
@@ -104,7 +104,7 @@ async def test_add_list_item_fk_409(client, monkeypatch):
     monkeypatch.setattr(workspace_router, "WorkspaceRepository", FakeRepo)
     res = await client.post(
         "/api/workspace/lists/1/items",
-        headers={"X-Tenant-Id": "acme"},
+        headers=make_auth_headers("acme"),
         json={"company_number": "09092149"},
     )
     assert res.status_code == 409
@@ -112,7 +112,7 @@ async def test_add_list_item_fk_409(client, monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_delete_list_item_404(client, monkeypatch):
+async def test_delete_list_item_404(client, monkeypatch, make_auth_headers):
     class FakeRepo:
         def __init__(self, session, tenant_id):
             self.session = session
@@ -124,7 +124,7 @@ async def test_delete_list_item_404(client, monkeypatch):
     monkeypatch.setattr(workspace_router, "WorkspaceRepository", FakeRepo)
     res = await client.delete(
         "/api/workspace/lists/1/items/09092149",
-        headers={"X-Tenant-Id": "acme"},
+        headers=make_auth_headers("acme"),
     )
     assert res.status_code == 404
     assert res.json()["detail"] == "List item not found"

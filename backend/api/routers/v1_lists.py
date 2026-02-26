@@ -4,7 +4,9 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from api.dependencies.auth import get_auth_context
 from api.dependencies.tenant import get_tenant_id
+from core.pagination import decode_offset_cursor, encode_offset_cursor
 from db.session import get_session
 from repositories.workspace_repo import WorkspaceRepository
 from schemas.v1 import (
@@ -16,16 +18,27 @@ from schemas.v1 import (
     V1ListResponse,
 )
 
-router = APIRouter(prefix="/v1", tags=["v1-lists"])
+router = APIRouter(
+    prefix="/v1",
+    tags=["v1-lists"],
+    dependencies=[Depends(get_auth_context)],
+)
 
 
 @router.get("/lists", response_model=V1ListCollectionResponse)
 async def get_lists(
+    limit: int = 50,
+    cursor: str | None = None,
     tenant_id: str = Depends(get_tenant_id),
     session: AsyncSession = Depends(get_session),
 ):
+    if limit < 1 or limit > 200:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="limit must be between 1 and 200")
+    offset = decode_offset_cursor(cursor)
     repo = WorkspaceRepository(session=session, tenant_id=tenant_id)
-    items = await repo.list_lists()
+    items = await repo.list_lists(limit=limit + 1, offset=offset)
+    page_items = items[:limit]
+    next_cursor = encode_offset_cursor(offset + limit) if len(items) > limit else None
     return V1ListCollectionResponse(
         items=[
             V1ListResponse(
@@ -34,8 +47,9 @@ async def get_lists(
                 created_at=item.created_at,
                 updated_at=item.updated_at,
             )
-            for item in items
-        ]
+            for item in page_items
+        ],
+        next_cursor=next_cursor,
     )
 
 
@@ -71,11 +85,18 @@ async def create_list(
 @router.get("/lists/{list_id}/items", response_model=V1ListItemCollectionResponse)
 async def get_list_items(
     list_id: int,
+    limit: int = 100,
+    cursor: str | None = None,
     tenant_id: str = Depends(get_tenant_id),
     session: AsyncSession = Depends(get_session),
 ):
+    if limit < 1 or limit > 500:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="limit must be between 1 and 500")
+    offset = decode_offset_cursor(cursor)
     repo = WorkspaceRepository(session=session, tenant_id=tenant_id)
-    items = await repo.list_items(list_id=list_id)
+    items = await repo.list_items(list_id=list_id, limit=limit + 1, offset=offset)
+    page_items = items[:limit]
+    next_cursor = encode_offset_cursor(offset + limit) if len(items) > limit else None
     return V1ListItemCollectionResponse(
         items=[
             V1ListItemResponse(
@@ -83,8 +104,9 @@ async def get_list_items(
                 company_number=item.company_number,
                 added_at=item.added_at,
             )
-            for item in items
-        ]
+            for item in page_items
+        ],
+        next_cursor=next_cursor,
     )
 
 
@@ -135,4 +157,3 @@ async def delete_list_item(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="List item not found")
     await session.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
-

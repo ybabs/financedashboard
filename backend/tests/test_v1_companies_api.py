@@ -9,12 +9,12 @@ from repositories.companies_repo import CompareSnapshot
 
 
 @pytest.mark.anyio
-async def test_v1_search_companies(client, monkeypatch):
+async def test_v1_search_companies(client, monkeypatch, make_auth_headers):
     class FakeRepo:
         def __init__(self, session):
             self.session = session
 
-        async def search(self, q: str, limit: int):
+        async def search(self, q: str, limit: int, offset: int = 0):
             return [
                 SimpleNamespace(
                     company_number="09092149",
@@ -25,7 +25,11 @@ async def test_v1_search_companies(client, monkeypatch):
             ]
 
     monkeypatch.setattr(v1_companies_router, "CompaniesRepository", FakeRepo)
-    res = await client.get("/v1/companies/search", params={"q": "starling", "limit": 5})
+    res = await client.get(
+        "/v1/companies/search",
+        params={"q": "starling", "limit": 5},
+        headers=make_auth_headers(),
+    )
     assert res.status_code == 200
     body = res.json()
     assert body["results"][0]["company_number"] == "09092149"
@@ -33,7 +37,7 @@ async def test_v1_search_companies(client, monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_v1_company_overview_ok(client, monkeypatch):
+async def test_v1_company_overview_ok(client, monkeypatch, make_auth_headers):
     class FakeRepo:
         def __init__(self, session):
             self.session = session
@@ -56,7 +60,7 @@ async def test_v1_company_overview_ok(client, monkeypatch):
             return {"company": company, "psc_count": 3, "current_ratio": 3.0}
 
     monkeypatch.setattr(v1_companies_router, "CompaniesRepository", FakeRepo)
-    res = await client.get("/v1/companies/09092149/overview")
+    res = await client.get("/v1/companies/09092149/overview", headers=make_auth_headers())
     assert res.status_code == 200
     body = res.json()
     assert body["company_number"] == "09092149"
@@ -65,7 +69,7 @@ async def test_v1_company_overview_ok(client, monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_v1_financial_series_rejects_unknown_metric(client, monkeypatch):
+async def test_v1_financial_series_rejects_unknown_metric(client, monkeypatch, make_auth_headers):
     class FakeFinancialsRepo:
         def __init__(self, session):
             self.session = session
@@ -77,13 +81,14 @@ async def test_v1_financial_series_rejects_unknown_metric(client, monkeypatch):
     res = await client.get(
         "/v1/companies/09092149/financials/series",
         params={"metric": "unknown_metric"},
+        headers=make_auth_headers(),
     )
     assert res.status_code == 400
     assert "Unsupported metric" in res.json()["detail"]
 
 
 @pytest.mark.anyio
-async def test_v1_financial_series_ok(client, monkeypatch):
+async def test_v1_financial_series_ok(client, monkeypatch, make_auth_headers):
     class FakeFinancialsRepo:
         def __init__(self, session):
             self.session = session
@@ -101,6 +106,7 @@ async def test_v1_financial_series_ok(client, monkeypatch):
     res = await client.get(
         "/v1/companies/09092149/financials/series",
         params={"metric": "net_profit"},
+        headers=make_auth_headers(),
     )
     assert res.status_code == 200
     body = res.json()
@@ -109,7 +115,7 @@ async def test_v1_financial_series_ok(client, monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_v1_compare_ok(client, monkeypatch):
+async def test_v1_compare_ok(client, monkeypatch, make_auth_headers):
     class FakeRepo:
         def __init__(self, session):
             self.session = session
@@ -147,8 +153,50 @@ async def test_v1_compare_ok(client, monkeypatch):
             )
 
     monkeypatch.setattr(v1_companies_router, "CompaniesRepository", FakeRepo)
-    res = await client.get("/v1/companies/compare", params={"left": "A1", "right": "B2"})
+    res = await client.get(
+        "/v1/companies/compare",
+        params={"left": "A1", "right": "B2"},
+        headers=make_auth_headers(),
+    )
     assert res.status_code == 200
     body = res.json()
     assert body["left"]["company_number"] == "A1"
     assert body["right"]["company_number"] == "B2"
+
+
+@pytest.mark.anyio
+async def test_v1_search_pagination_cursor(client, monkeypatch, make_auth_headers):
+    class FakeRepo:
+        def __init__(self, session):
+            self.session = session
+
+        async def search(self, q: str, limit: int, offset: int = 0):
+            assert offset == 0
+            assert limit == 3
+            return [
+                SimpleNamespace(company_number="1", name="One", status="active", sim_score=0.9),
+                SimpleNamespace(company_number="2", name="Two", status="active", sim_score=0.8),
+                SimpleNamespace(company_number="3", name="Three", status="active", sim_score=0.7),
+            ]
+
+    monkeypatch.setattr(v1_companies_router, "CompaniesRepository", FakeRepo)
+    res = await client.get(
+        "/v1/companies/search",
+        params={"q": "oo", "limit": 2},
+        headers=make_auth_headers(),
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert len(body["results"]) == 2
+    assert body["next_cursor"]
+
+
+@pytest.mark.anyio
+async def test_v1_search_rejects_invalid_cursor(client, make_auth_headers):
+    res = await client.get(
+        "/v1/companies/search",
+        params={"q": "acme", "cursor": "not-a-real-cursor"},
+        headers=make_auth_headers(),
+    )
+    assert res.status_code == 400
+    assert res.json()["detail"] == "Invalid cursor"

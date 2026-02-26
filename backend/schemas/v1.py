@@ -15,6 +15,7 @@ class V1CompanySearchItem(BaseModel):
 
 class V1CompanySearchResponse(BaseModel):
     results: list[V1CompanySearchItem] = Field(default_factory=list)
+    next_cursor: str | None = None
 
 
 class V1CompanyDetailResponse(BaseModel):
@@ -124,6 +125,7 @@ class V1ListResponse(BaseModel):
 
 class V1ListCollectionResponse(BaseModel):
     items: list[V1ListResponse] = Field(default_factory=list)
+    next_cursor: str | None = None
 
 
 class V1ListItemResponse(BaseModel):
@@ -134,6 +136,7 @@ class V1ListItemResponse(BaseModel):
 
 class V1ListItemCollectionResponse(BaseModel):
     items: list[V1ListItemResponse] = Field(default_factory=list)
+    next_cursor: str | None = None
 
 
 class V1IngestJobHealth(BaseModel):

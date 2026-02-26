@@ -10,12 +10,14 @@ class WorkspaceRepository:
         self._session = session
         self._tenant_id = tenant_id
 
-    async def list_lists(self):
+    async def list_lists(self, limit: int = 50, offset: int = 0):
         await apply_tenant_context(self._session, self._tenant_id)
         stmt = (
             select(WorkspaceList)
             .where(WorkspaceList.tenant_id == self._tenant_id)
             .order_by(asc(WorkspaceList.name))
+            .limit(limit)
+            .offset(offset)
         )
         result = await self._session.execute(stmt)
         return result.scalars().all()
@@ -57,7 +59,7 @@ class WorkspaceRepository:
         await self._session.delete(item)
         return True
 
-    async def list_items(self, list_id: int):
+    async def list_items(self, list_id: int, limit: int = 100, offset: int = 0):
         await apply_tenant_context(self._session, self._tenant_id)
         stmt = (
             select(WorkspaceListItem)
@@ -66,7 +68,8 @@ class WorkspaceRepository:
                 WorkspaceListItem.tenant_id == self._tenant_id,
             )
             .order_by(asc(WorkspaceListItem.added_at))
+            .limit(limit)
+            .offset(offset)
         )
         result = await self._session.execute(stmt)
         return result.scalars().all()
-

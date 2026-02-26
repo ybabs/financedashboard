@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from core.config import settings
 from repositories.financials_repo import FinancialsRepository
 
 
@@ -67,6 +68,7 @@ async def test_get_company_metric_series_prefers_materialized_view(monkeypatch):
 
 @pytest.mark.anyio
 async def test_get_company_metric_series_falls_back_to_raw(monkeypatch):
+    monkeypatch.setattr(settings, "financials_raw_fallback_enabled", True)
     rows = [_DictRow(metric_key="net_profit", xbrl_tag_normalized="profitloss", priority=10)]
     session = _SessionForDictionaryOnly(rows=rows)
     repo = FinancialsRepository(session)
@@ -87,7 +89,28 @@ async def test_get_company_metric_series_falls_back_to_raw(monkeypatch):
 
 
 @pytest.mark.anyio
-async def test_get_series_from_raw_uses_best_priority():
+async def test_get_company_metric_series_read_model_only_returns_empty(monkeypatch):
+    monkeypatch.setattr(settings, "financials_raw_fallback_enabled", False)
+    rows = [_DictRow(metric_key="net_profit", xbrl_tag_normalized="profitloss", priority=10)]
+    session = _SessionForDictionaryOnly(rows=rows)
+    repo = FinancialsRepository(session)
+
+    async def _fake_mv(company_number: str, metric_key: str):
+        return []
+
+    async def _fake_raw(company_number: str, tag_priority: dict[str, int], max_rows: int):
+        raise AssertionError("raw fallback should not run when read-model-only mode is enabled")
+
+    monkeypatch.setattr(repo, "_get_series_from_materialized_view", _fake_mv)
+    monkeypatch.setattr(repo, "_get_series_from_raw", _fake_raw)
+
+    series = await repo.get_company_metric_series(company_number="09092149", metric_key="net_profit")
+    assert series == []
+
+
+@pytest.mark.anyio
+async def test_get_series_from_raw_uses_best_priority(monkeypatch):
+    monkeypatch.setattr(settings, "financials_raw_fallback_enabled", True)
     dict_rows = [
         _DictRow(metric_key="net_profit", xbrl_tag_normalized="profitloss", priority=10),
         _DictRow(metric_key="net_profit", xbrl_tag_normalized="profitforfinancialyear", priority=20),

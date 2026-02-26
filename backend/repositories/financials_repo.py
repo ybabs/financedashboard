@@ -9,6 +9,7 @@ from sqlalchemy import asc, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import ProgrammingError
 
+from core.config import settings
 from core.financial_metrics import normalize_tag_name
 from models.financial_metric import FinancialMetricDictionary
 
@@ -68,6 +69,8 @@ class FinancialsRepository:
         )
         if mv_points:
             return mv_points
+        if not settings.financials_raw_fallback_enabled:
+            return []
 
         return await self._get_series_from_raw(
             company_number=company_number,

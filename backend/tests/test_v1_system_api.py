@@ -6,7 +6,7 @@ import api.routers.v1_system as v1_system_router
 
 
 @pytest.mark.anyio
-async def test_v1_ingest_health_ok(client, monkeypatch):
+async def test_v1_ingest_health_ok(client, monkeypatch, make_auth_headers):
     class FakeRepo:
         def __init__(self, session):
             self.session = session
@@ -34,10 +34,9 @@ async def test_v1_ingest_health_ok(client, monkeypatch):
             }
 
     monkeypatch.setattr(v1_system_router, "SystemRepository", FakeRepo)
-    res = await client.get("/v1/system/ingest-health")
+    res = await client.get("/v1/system/ingest-health", headers=make_auth_headers())
     assert res.status_code == 200
     body = res.json()
     assert body["status"] == "healthy"
     assert body["artifacts"]["success_count"] == 42
     assert body["jobs"][0]["job_name"] == "accounts_daily"
-
