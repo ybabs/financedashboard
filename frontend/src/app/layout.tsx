@@ -1,7 +1,9 @@
-import { Roboto } from "next/font/google";
+import { Manrope } from "next/font/google";
+
+import { CompanyTabsProvider } from "@/components/app/company-tabs-provider";
 import "./globals.css";
 
-const roboto = Roboto({ weight: ["400", "500", "700"], subsets: ["latin"] });
+const manrope = Manrope({ weight: ["400", "500", "600", "700"], subsets: ["latin"] });
 
 export const metadata = {
   title: "CapitalBase",
@@ -11,9 +13,8 @@ export const metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className={`${roboto.className} bg-slate-50 text-slate-900 antialiased`}>
-        {/* Everything else is injected here based on the URL */}
-        {children}
+      <body className={`${manrope.className} min-h-screen text-[var(--cb-text-strong)]`}>
+        <CompanyTabsProvider>{children}</CompanyTabsProvider>
       </body>
     </html>
   );
