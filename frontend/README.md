@@ -20,6 +20,25 @@ You can start editing the page by modifying `app/page.tsx`. The page auto-update
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
+## Backend wiring
+
+The company search and dashboard pages call the FastAPI backend through a local Next.js proxy route at `src/app/api/backend/[...path]/route.ts`.
+
+Set these environment variables in `frontend/.env.local` before running the app:
+
+```bash
+CAPITALBASE_API_BASE_URL=http://127.0.0.1:8000
+CAPITALBASE_API_TOKEN=<dev-jwt>
+CAPITALBASE_API_TENANT_ID=acme
+```
+
+You can generate a dev token from the backend project with:
+
+```bash
+cd ../backend
+make auth-dev-token TENANT=acme
+```
+
 ## Learn More
 
 To learn more about Next.js, take a look at the following resources:
