@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -99,8 +100,19 @@ class V1PscItem(BaseModel):
     nationality: str | None = None
     country_of_residence: str | None = None
     ceased: bool | None = None
+    is_sanctioned: bool | None = None
     notified_on: date | None = None
     ceased_on: date | None = None
+    dob_year: int | None = None
+    dob_month: int | None = None
+    description: str | None = None
+    address: dict[str, Any] | None = None
+    principal_office_address: dict[str, Any] | None = None
+    identification: dict[str, Any] | None = None
+    identity_verification: dict[str, Any] | None = None
+    link_self: str | None = None
+    link_statement: str | None = None
+    updated_at: datetime | None = None
 
 
 class V1PscListResponse(BaseModel):

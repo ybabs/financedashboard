@@ -26,6 +26,7 @@ import {
     formatRatio,
 } from "@/lib/format";
 import { useCompanyData } from "./company-context";
+import { PscDetailDrawer } from "./psc-detail-drawer";
 
 type SeriesState = {
     companyId: string;
@@ -133,6 +134,7 @@ const balanceSheetGroups: MetricGroupConfig[] = [
 export default function CompanyDashboardPage() {
     const { companyId, overview, detail, psc } = useCompanyData();
     const [selectedPscKey, setSelectedPscKey] = useState<string | null>(null);
+    const [isPscDrawerOpen, setIsPscDrawerOpen] = useState(false);
     const [seriesState, setSeriesState] = useState<SeriesState>(() => ({
         companyId,
         supportedMetrics: [],
@@ -267,6 +269,23 @@ export default function CompanyDashboardPage() {
         [balanceCards],
     );
 
+    const selectedPsc = useMemo(
+        () => psc.find((item) => item.psc_key === selectedPscKey) ?? psc[0] ?? null,
+        [psc, selectedPscKey],
+    );
+
+    useEffect(() => {
+        if (psc.length === 0) {
+            setSelectedPscKey(null);
+            setIsPscDrawerOpen(false);
+            return;
+        }
+
+        if (!selectedPscKey || !psc.some((item) => item.psc_key === selectedPscKey)) {
+            setSelectedPscKey(psc[0].psc_key);
+        }
+    }, [psc, selectedPscKey]);
+
     const latestVisibleFinancialFactDate = useMemo(() => {
         const resolvedPeriods = [
             ...summaryCards.map((card) => card.resolved),
@@ -288,8 +307,21 @@ export default function CompanyDashboardPage() {
         Boolean(latestVisibleFinancialFactDate) &&
         accountsMadeUpTo! > latestVisibleFinancialFactDate!;
 
+    const openSelectedPsc = () => {
+        if (!selectedPsc) {
+            return;
+        }
+        setIsPscDrawerOpen(true);
+    };
+
     return (
         <div className="flex h-full w-full flex-col space-y-6 pb-6">
+            <PscDetailDrawer
+                item={selectedPsc}
+                open={isPscDrawerOpen}
+                onClose={() => setIsPscDrawerOpen(false)}
+            />
+
             {hasFinancialDataLag ? (
                 <div className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-900">
                     Financial facts currently loaded for this company only run to {formatDate(latestVisibleFinancialFactDate)}, while the company profile shows accounts made up to {formatDate(accountsMadeUpTo)}.
@@ -331,7 +363,11 @@ export default function CompanyDashboardPage() {
                     </BentoCard>
                 ) : null}
 
-                <BentoCard title="PSC Snapshot" action={<ArrowUpRight className="w-4 h-4" />}>
+                <BentoCard
+                    title="PSC Snapshot"
+                    action={<ArrowUpRight className="w-4 h-4" />}
+                    onActionClick={openSelectedPsc}
+                >
                     <div className="flex h-full flex-col justify-between gap-6">
                         <div>
                             <div className="text-[72px] font-light leading-none tracking-tighter text-[#1c1c1c]">
@@ -349,7 +385,10 @@ export default function CompanyDashboardPage() {
                                         key={item.psc_key}
                                         item={item}
                                         isSelected={selectedPscKey === item.psc_key}
-                                        onSelect={setSelectedPscKey}
+                                        onSelect={(pscKey) => {
+                                            setSelectedPscKey(pscKey);
+                                            setIsPscDrawerOpen(true);
+                                        }}
                                     />
                                 ))
                             ) : (
@@ -543,11 +582,13 @@ function BentoCard({
     subtitle,
     children,
     action,
+    onActionClick,
 }: {
     title: string;
     subtitle?: string;
     children: React.ReactNode;
     action?: React.ReactNode;
+    onActionClick?: () => void;
 }) {
     return (
         <div className="bg-white rounded-[24px] shadow-[0_4px_24px_rgba(0,0,0,0.02)] flex flex-col p-6 relative overflow-hidden">
@@ -557,7 +598,11 @@ function BentoCard({
                     {subtitle ? <p className="mt-1 text-xs text-[#8c8c8c]">{subtitle}</p> : null}
                 </div>
                 {action && (
-                    <button className="text-[#a0a0a0] hover:text-[#1c1c1c] transition-colors">
+                    <button
+                        type="button"
+                        onClick={onActionClick}
+                        className="text-[#a0a0a0] hover:text-[#1c1c1c] transition-colors"
+                    >
                         {action}
                     </button>
                 )}

@@ -75,8 +75,19 @@ export interface PscItem {
   nationality: string | null;
   country_of_residence: string | null;
   ceased: boolean | null;
+  is_sanctioned?: boolean | null;
   notified_on: string | null;
   ceased_on: string | null;
+  dob_year?: number | null;
+  dob_month?: number | null;
+  description?: string | null;
+  address?: Record<string, unknown> | null;
+  principal_office_address?: Record<string, unknown> | null;
+  identification?: Record<string, unknown> | null;
+  identity_verification?: Record<string, unknown> | null;
+  link_self?: string | null;
+  link_statement?: string | null;
+  updated_at?: string | null;
 }
 
 export interface PscListResponse {
