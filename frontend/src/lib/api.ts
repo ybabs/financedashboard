@@ -5,16 +5,137 @@ export type CompanySearchResult = {
   score?: number;
 };
 
-function getApiConfig() {
-  const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
-  const token = process.env.NEXT_PUBLIC_API_TOKEN?.trim();
-  const tenantId = process.env.NEXT_PUBLIC_TENANT_ID?.trim();
+export type CompanySearchItem = CompanySearchResult;
 
-  if (!baseUrl || !token) {
-    throw new Error("Frontend API env is missing. Set NEXT_PUBLIC_API_BASE_URL and NEXT_PUBLIC_API_TOKEN.");
+export interface CompanySearchResponse {
+  results: CompanySearchResult[];
+  next_cursor: string | null;
+}
+
+export interface CompanyDetailResponse {
+  company_number: string;
+  name: string;
+  status: string | null;
+  incorporation_date: string | null;
+  account_type: string | null;
+  last_accounts_made_up_to: string | null;
+  region: string | null;
+  turnover: string | number | null;
+  employees: number | null;
+  net_assets: string | number | null;
+  current_assets: string | number | null;
+  creditors: string | number | null;
+  cash: string | number | null;
+  operating_profit?: string | number | null;
+  profit_before_tax?: string | number | null;
+  net_current_assets?: string | number | null;
+  fixed_assets?: string | number | null;
+  investments?: string | number | null;
+  debtors?: string | number | null;
+  trade_debtors?: string | number | null;
+  trade_creditors?: string | number | null;
+  other_debtors?: string | number | null;
+  other_creditors?: string | number | null;
+  deferred_tax?: string | number | null;
+}
+
+export interface CompanyOverviewResponse {
+  company_number: string;
+  name: string;
+  status: string | null;
+  account_type: string | null;
+  last_accounts_made_up_to: string | null;
+  turnover: string | number | null;
+  employees: number | null;
+  net_assets: string | number | null;
+  current_assets: string | number | null;
+  creditors: string | number | null;
+  cash: string | number | null;
+  operating_profit?: string | number | null;
+  profit_before_tax?: string | number | null;
+  net_current_assets?: string | number | null;
+  fixed_assets?: string | number | null;
+  investments?: string | number | null;
+  debtors?: string | number | null;
+  trade_debtors?: string | number | null;
+  trade_creditors?: string | number | null;
+  other_debtors?: string | number | null;
+  other_creditors?: string | number | null;
+  deferred_tax?: string | number | null;
+  psc_count: number;
+  current_ratio: number | null;
+  updated_at: string;
+}
+
+export interface PscItem {
+  psc_key: string;
+  name: string;
+  kind: string;
+  natures_of_control: string[];
+  nationality: string | null;
+  country_of_residence: string | null;
+  ceased: boolean | null;
+  notified_on: string | null;
+  ceased_on: string | null;
+}
+
+export interface PscListResponse {
+  company_number: string;
+  items: PscItem[];
+}
+
+export interface FinancialSeriesPoint {
+  period_date: string;
+  value: string | number;
+}
+
+export interface FinancialSeriesResponse {
+  company_number: string;
+  metric: string;
+  points: FinancialSeriesPoint[];
+}
+
+export interface FinancialMetricDefinition {
+  metric_key: string;
+  tags: string[];
+}
+
+export interface FinancialMetricCatalogResponse {
+  items: FinancialMetricDefinition[];
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`/api/backend${path}`, {
+    ...init,
+    cache: "no-store",
+    headers: {
+      accept: "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
+
+  const raw = await response.text();
+  let payload: unknown = null;
+  if (raw) {
+    try {
+      payload = JSON.parse(raw);
+    } catch {
+      payload = { detail: raw };
+    }
   }
 
-  return { baseUrl, token, tenantId };
+  if (!response.ok) {
+    const detail =
+      payload &&
+      typeof payload === "object" &&
+      "detail" in payload &&
+      typeof payload.detail === "string"
+        ? payload.detail
+        : `Request failed with ${response.status}`;
+    throw new Error(detail);
+  }
+
+  return payload as T;
 }
 
 export async function searchCompanies(query: string, limit = 6): Promise<CompanySearchResult[]> {
@@ -23,28 +144,43 @@ export async function searchCompanies(query: string, limit = 6): Promise<Company
     return [];
   }
 
-  const { baseUrl, token, tenantId } = getApiConfig();
-  const url = new URL("/v1/companies/search", baseUrl);
-  url.searchParams.set("q", trimmed);
-  url.searchParams.set("limit", String(limit));
-
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${token}`,
-  };
-  if (tenantId) {
-    headers["X-Tenant-Id"] = tenantId;
-  }
-
-  const response = await fetch(url.toString(), {
-    method: "GET",
-    headers,
-    cache: "no-store",
+  const params = new URLSearchParams({
+    q: trimmed,
+    limit: String(limit),
   });
-
-  if (!response.ok) {
-    throw new Error(`Search request failed with status ${response.status}`);
-  }
-
-  const payload = (await response.json()) as { results?: CompanySearchResult[] };
+  const payload = await request<CompanySearchResponse>(`/v1/companies/search?${params.toString()}`);
   return payload.results ?? [];
+}
+
+export function getCompany(companyNumber: string): Promise<CompanyDetailResponse> {
+  return request<CompanyDetailResponse>(
+    `/v1/companies/${encodeURIComponent(companyNumber)}`,
+  );
+}
+
+export function getCompanyOverview(companyNumber: string): Promise<CompanyOverviewResponse> {
+  return request<CompanyOverviewResponse>(
+    `/v1/companies/${encodeURIComponent(companyNumber)}/overview`,
+  );
+}
+
+export function getCompanyPsc(companyNumber: string, limit = 5): Promise<PscListResponse> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  return request<PscListResponse>(
+    `/v1/companies/${encodeURIComponent(companyNumber)}/psc?${params.toString()}`,
+  );
+}
+
+export function getFinancialSeries(
+  companyNumber: string,
+  metric: string,
+): Promise<FinancialSeriesResponse> {
+  const params = new URLSearchParams({ metric });
+  return request<FinancialSeriesResponse>(
+    `/v1/companies/${encodeURIComponent(companyNumber)}/financials/series?${params.toString()}`,
+  );
+}
+
+export function getFinancialMetricCatalog(): Promise<FinancialMetricCatalogResponse> {
+  return request<FinancialMetricCatalogResponse>("/v1/financials/metrics");
 }

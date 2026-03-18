@@ -200,3 +200,35 @@ async def test_v1_search_rejects_invalid_cursor(client, make_auth_headers):
     )
     assert res.status_code == 400
     assert res.json()["detail"] == "Invalid cursor"
+
+
+@pytest.mark.anyio
+async def test_v1_company_psc_normalizes_missing_name(client, monkeypatch, make_auth_headers):
+    class FakeRepo:
+        def __init__(self, session):
+            self.session = session
+
+        async def get_psc(self, company_number: str, limit: int):
+            return [
+                SimpleNamespace(
+                    psc_key="psc-1",
+                    name=None,
+                    kind="individual-person-with-significant-control",
+                    natures_of_control=["ownership-of-shares-25-to-50-percent"],
+                    nationality="British",
+                    country_of_residence="United Kingdom",
+                    ceased=False,
+                    notified_on=None,
+                    ceased_on=None,
+                )
+            ]
+
+    monkeypatch.setattr(v1_companies_router, "CompaniesRepository", FakeRepo)
+    res = await client.get(
+        "/v1/companies/09092149/psc",
+        params={"limit": 10},
+        headers=make_auth_headers(),
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["items"][0]["name"] == "Name unavailable"

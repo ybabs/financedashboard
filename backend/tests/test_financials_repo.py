@@ -128,12 +128,14 @@ async def test_get_series_from_raw_uses_best_priority(monkeypatch):
                     SimpleNamespace(
                         name_raw="uk-gaap:ProfitForFinancialYear",
                         numeric_value=Decimal("100"),
+                        has_dimensions=False,
                         period_end=date(2024, 12, 31),
                         period_instant=None,
                     ),
                     SimpleNamespace(
                         name_raw="uk-gaap:ProfitLoss",
                         numeric_value=Decimal("120"),
+                        has_dimensions=False,
                         period_end=date(2024, 12, 31),
                         period_instant=None,
                     ),
@@ -145,4 +147,73 @@ async def test_get_series_from_raw_uses_best_priority(monkeypatch):
     assert len(series) == 1
     # priority 10 tag should win over priority 20 for the same period
     assert series[0]["value"] == Decimal("120")
+    assert series[0]["priority"] == 10
+
+
+@pytest.mark.anyio
+async def test_get_series_from_raw_prefers_undimensioned_facts_within_priority(monkeypatch):
+    monkeypatch.setattr(settings, "financials_raw_fallback_enabled", True)
+    dict_rows = [_DictRow(metric_key="fixed_assets", xbrl_tag_normalized="propertyplantequipment", priority=10)]
+
+    class SessionWithFacts:
+        async def execute(self, stmt, params=None):
+            sql_text = str(stmt)
+            if "financial_metric_dictionary" in sql_text:
+                return _ScalarResult(dict_rows)
+            if "financial_metric_series" in sql_text:
+                return SimpleNamespace(all=lambda: [])
+            return SimpleNamespace(
+                all=lambda: [
+                    SimpleNamespace(
+                        name_raw="e:PropertyPlantEquipment",
+                        numeric_value=Decimal("7637648"),
+                        has_dimensions=True,
+                        period_end=None,
+                        period_instant=date(2024, 7, 31),
+                    ),
+                    SimpleNamespace(
+                        name_raw="e:PropertyPlantEquipment",
+                        numeric_value=Decimal("8007094"),
+                        has_dimensions=False,
+                        period_end=None,
+                        period_instant=date(2024, 7, 31),
+                    ),
+                ]
+            )
+
+    repo = FinancialsRepository(SessionWithFacts())
+    series = await repo.get_company_metric_series(company_number="00000118", metric_key="fixed_assets")
+    assert len(series) == 1
+    assert series[0]["value"] == Decimal("8007094")
+    assert series[0]["priority"] == 10
+
+
+@pytest.mark.anyio
+async def test_get_series_from_raw_supports_zero_employee_values(monkeypatch):
+    monkeypatch.setattr(settings, "financials_raw_fallback_enabled", True)
+    dict_rows = [_DictRow(metric_key="employees", xbrl_tag_normalized="averagenumberemployeesduringperiod", priority=10)]
+
+    class SessionWithFacts:
+        async def execute(self, stmt, params=None):
+            sql_text = str(stmt)
+            if "financial_metric_dictionary" in sql_text:
+                return _ScalarResult(dict_rows)
+            if "financial_metric_series" in sql_text:
+                return SimpleNamespace(all=lambda: [])
+            return SimpleNamespace(
+                all=lambda: [
+                    SimpleNamespace(
+                        name_raw="core:AverageNumberEmployeesDuringPeriod",
+                        numeric_value=Decimal("0"),
+                        has_dimensions=False,
+                        period_end=date(2024, 3, 31),
+                        period_instant=None,
+                    ),
+                ]
+            )
+
+    repo = FinancialsRepository(SessionWithFacts())
+    series = await repo.get_company_metric_series(company_number="14716438", metric_key="employees")
+    assert len(series) == 1
+    assert series[0]["value"] == Decimal("0")
     assert series[0]["priority"] == 10

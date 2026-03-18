@@ -30,6 +30,11 @@ router = APIRouter(
 )
 
 
+def _psc_display_name(name: str | None) -> str:
+    normalized = (name or "").strip()
+    return normalized or "Name unavailable"
+
+
 @router.get("/search", response_model=V1CompanySearchResponse)
 async def search_companies(
     q: str = Query(..., min_length=2, description="Search query"),
@@ -117,12 +122,12 @@ async def get_company_overview(
         status=company.status,
         account_type=company.account_type,
         last_accounts_made_up_to=company.last_accounts_made_up_to,
-        turnover=company.turnover,
+        turnover=payload.get("turnover", company.turnover),
         employees=company.employees,
-        net_assets=company.net_assets,
-        current_assets=company.current_assets,
-        creditors=company.creditors,
-        cash=company.cash,
+        net_assets=payload.get("net_assets", company.net_assets),
+        current_assets=payload.get("current_assets", company.current_assets),
+        creditors=payload.get("creditors", company.creditors),
+        cash=payload.get("cash", company.cash),
         psc_count=payload["psc_count"],
         current_ratio=payload["current_ratio"],
         updated_at=company.updated_at,
@@ -168,7 +173,7 @@ async def get_company_psc(
         items=[
             V1PscItem(
                 psc_key=item.psc_key,
-                name=item.name,
+                name=_psc_display_name(item.name),
                 kind=item.kind,
                 natures_of_control=item.natures_of_control or [],
                 nationality=item.nationality,

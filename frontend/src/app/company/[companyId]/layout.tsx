@@ -1,6 +1,7 @@
 "use client";
 
 import { use } from "react";
+import type { Icon } from "@phosphor-icons/react";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import {
     Plus,
@@ -46,7 +47,10 @@ function CompanyLayoutInner({
     const { companyId, detail, overview, isLoading, error } = useCompanyData();
     const displayName = detail?.name ?? overview?.name ?? companyId;
     const statusLabel = detail?.status ?? overview?.status ?? "unknown";
+    const normalizedStatus = statusLabel.toLowerCase();
     const avatarText = initialsFromName(displayName);
+    const turnoverValue = overview?.turnover ?? detail?.turnover;
+    const employeesValue = overview?.employees ?? detail?.employees;
 
     return (
         <div className={`${jakartaClassName} flex h-screen bg-[#f4f6f8] text-[#1c1c1c] overflow-hidden w-full antialiased`}>
@@ -126,8 +130,8 @@ function CompanyLayoutInner({
                                 <div className="flex items-center space-x-3 mt-1.5">
                                     <span className="text-[13px] font-medium text-[#666666]">Co. {companyId}</span>
                                     <span className="w-1 h-1 bg-[#d9d9d9] rounded-full"></span>
-                                    <span className={`text-[13px] font-bold flex items-center ${statusLabel === "active" ? "text-[#10b981]" : "text-[#d97706]"}`}>
-                                        <span className={`w-2 h-2 rounded-full mr-1.5 shadow-[0_0_8px_rgba(16,185,129,0.4)] ${statusLabel === "active" ? "bg-[#10b981]" : "bg-[#d97706]"}`}></span>
+                                    <span className={`text-[13px] font-bold flex items-center ${normalizedStatus === "active" ? "text-[#16a34a]" : "text-[#d97706]"}`}>
+                                        <span className={`w-2 h-2 rounded-full mr-1.5 ${normalizedStatus === "active" ? "bg-[#16a34a] shadow-[0_0_8px_rgba(22,163,74,0.35)]" : "bg-[#d97706]"}`}></span>
                                         {statusLabel}
                                     </span>
                                     {error ? (
@@ -141,8 +145,12 @@ function CompanyLayoutInner({
                         </div>
                         <div className="flex items-center gap-3">
                             <QuickFact label="Accounts" value={detail?.last_accounts_made_up_to ? formatDate(detail.last_accounts_made_up_to) : "—"} />
-                            <QuickFact label="Turnover" value={formatCompactCurrency(overview?.turnover ?? detail?.turnover)} />
-                            <QuickFact label="Employees" value={formatInteger(overview?.employees ?? detail?.employees)} />
+                            {hasValue(turnoverValue) ? (
+                                <QuickFact label="Turnover" value={formatCompactCurrency(turnoverValue)} />
+                            ) : null}
+                            {hasValue(employeesValue) ? (
+                                <QuickFact label="Employees" value={formatInteger(typeof employeesValue === "number" ? employeesValue : Number(employeesValue))} />
+                            ) : null}
                             <button className="p-2 text-[#8c8c8c] hover:text-[#1c1c1c] hover:bg-white rounded-full transition-colors">
                                 <DotsThreeCircle weight="fill" className="w-7 h-7" />
                             </button>
@@ -167,7 +175,7 @@ function CompanyLayoutInner({
 
 // --- SUB-COMPONENTS ---
 
-function SidebarItem({ icon: Icon, label, active = false }: { icon: any, label: string, active?: boolean }) {
+function SidebarItem({ icon: Icon, label, active = false }: { icon: Icon; label: string; active?: boolean }) {
     return (
         <a href="#"
             className={`flex items-center px-4 py-2.5 rounded-xl text-[14px] transition-all duration-200 ${active
@@ -200,6 +208,10 @@ function QuickFact({ label, value }: { label: string; value: string }) {
             <div className="mt-1 text-sm font-semibold text-[#1c1c1c]">{value}</div>
         </div>
     );
+}
+
+function hasValue(value: string | number | null | undefined): boolean {
+    return value !== null && value !== undefined && value !== "";
 }
 
 // --- CUSTOM SVG LOGO ---

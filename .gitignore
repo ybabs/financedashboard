@@ -47,3 +47,4 @@ __pycache__/
 *.pyc
 backend/__pycache__
 backend/repositories/__pycache__
+venv/

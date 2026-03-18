@@ -13,6 +13,11 @@ from schemas.company import (
 
 router = APIRouter(prefix="/api", tags=["companies"])
 
+
+def _psc_display_name(name: str | None) -> str:
+    normalized = (name or "").strip()
+    return normalized or "Name unavailable"
+
 @router.get("/search", response_model=CompanySearchResponse)
 async def search_companies(
     q: str = Query(..., min_length=2, description="Search query"),
@@ -81,7 +86,7 @@ async def get_company_psc(
         items=[
             PscPersonItem(
                 psc_key=item.psc_key,
-                name=item.name,
+                name=_psc_display_name(item.name),
                 kind=item.kind,
                 natures_of_control=item.natures_of_control or [],
                 nationality=item.nationality,

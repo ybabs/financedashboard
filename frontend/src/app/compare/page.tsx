@@ -2,7 +2,7 @@
 
 import React from "react";
 import { ArrowUpRight, Swap } from "@phosphor-icons/react/dist/ssr";
-import { Line, LineChart, Tooltip } from "recharts";
+import { Line, LineChart, Tooltip, type TooltipContentProps, type TooltipPayloadEntry } from "recharts";
 
 import { ChartContainer } from "@/components/app/chart-container";
 
@@ -158,21 +158,33 @@ function DeltaCard({ label, value, note }: { label: string; value: string; note:
   );
 }
 
-function CompareTooltip({ active, payload, label, prefix = "", suffix = "" }: any) {
+function CompareTooltip({
+  active,
+  payload,
+  label,
+  prefix = "",
+  suffix = "",
+}: TooltipContentProps<number, string> & { prefix?: string; suffix?: string }) {
   if (active && payload && payload.length) {
     return (
       <div className="rounded-lg border border-white/10 bg-[var(--cb-text-strong)] px-3 py-2 text-xs text-white shadow-xl">
         <p className="mb-1 font-semibold text-white/70">{label}</p>
-        {payload.map((entry: { dataKey: string; value: number; color: string }) => (
-          <p key={entry.dataKey} className="flex items-center gap-2 font-medium">
-            <span className="h-2 w-2 rounded-full" style={{ backgroundColor: entry.color }} />
-            <span>
-              {entry.dataKey}: {prefix}
-              {entry.value}
-              {suffix}
-            </span>
-          </p>
-        ))}
+        {payload.map((entry) => {
+          const tooltipEntry = entry as TooltipPayloadEntry<number, string>;
+          return (
+            <p key={String(tooltipEntry.dataKey)} className="flex items-center gap-2 font-medium">
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: tooltipEntry.color ?? "currentColor" }}
+              />
+              <span>
+                {String(tooltipEntry.dataKey)}: {prefix}
+                {tooltipEntry.value}
+                {suffix}
+              </span>
+            </p>
+          );
+        })}
       </div>
     );
   }

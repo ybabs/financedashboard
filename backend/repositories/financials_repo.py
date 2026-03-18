@@ -120,6 +120,11 @@ class FinancialsRepository:
             SELECT
               f.name_raw,
               f.numeric_value,
+              EXISTS (
+                SELECT 1
+                FROM ixbrl_context_dimensions cd
+                WHERE cd.context_pk = c.id
+              ) AS has_dimensions,
               c.period_end,
               c.period_instant
             FROM ixbrl_documents d
@@ -140,8 +145,8 @@ class FinancialsRepository:
             )
         ).all()
 
-        # Normalize by period and choose best-priority dictionary tag set per period.
-        by_period: dict[date, dict[int, list[Decimal]]] = defaultdict(lambda: defaultdict(list))
+        # Normalize by period and prefer undimensioned headline facts over note breakdowns.
+        by_period: dict[date, dict[tuple[int, bool], list[Decimal]]] = defaultdict(lambda: defaultdict(list))
         for row in fact_rows:
             normalized = normalize_tag_name(row.name_raw)
             priority = tag_priority.get(normalized)
@@ -151,13 +156,14 @@ class FinancialsRepository:
             period = row.period_end or row.period_instant
             if period is None:
                 continue
-            by_period[period][priority].append(row.numeric_value)
+            by_period[period][(priority, bool(row.has_dimensions))].append(row.numeric_value)
 
         points: list[dict] = []
         for period in sorted(by_period):
-            values_by_priority = by_period[period]
-            best_priority = min(values_by_priority.keys())
-            values = values_by_priority[best_priority]
+            values_by_rank = by_period[period]
+            best_rank = min(values_by_rank.keys())
+            best_priority, _ = best_rank
+            values = values_by_rank[best_rank]
             avg_value = sum(values) / Decimal(len(values))
             points.append(
                 {

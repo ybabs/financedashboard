@@ -2,7 +2,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dataclasses import dataclass
 from decimal import Decimal
 
-from sqlalchemy import Float, asc, cast, desc, func, or_, select
+from sqlalchemy import Float, asc, cast, desc, func, or_, select, text
+from sqlalchemy.exc import ProgrammingError
 
 from models.company import Company
 from models.psc_person import PscPerson
@@ -27,6 +28,26 @@ class CompareSnapshot:
 class CompaniesRepository:
     def __init__(self, session: AsyncSession):
         self._session = session
+
+    async def _get_latest_metric_values(self, company_number: str) -> dict[str, Decimal]:
+        stmt = text(
+            """
+            SELECT DISTINCT ON (metric_key) metric_key, value
+            FROM financial_metric_series
+            WHERE company_number = :company_number
+            ORDER BY metric_key ASC, period_date DESC
+            """
+        )
+        try:
+            rows = (await self._session.execute(stmt, {"company_number": company_number})).all()
+        except ProgrammingError:
+            return {}
+        return {
+            row.metric_key: row.value
+            for row in rows
+            if row.metric_key in {"turnover", "net_assets", "current_assets", "creditors", "cash"}
+            and row.value is not None
+        }
 
     async def search(self, q: str, limit: int = 10, offset: int = 0):
         sim_score = func.similarity(Company.name, q)
@@ -80,16 +101,30 @@ class CompaniesRepository:
 
         psc_stmt = select(func.count()).select_from(PscPerson).where(PscPerson.company_number == company_number)
         psc_count = (await self._session.execute(psc_stmt)).scalar_one()
+        metric_values = await self._get_latest_metric_values(company_number)
+
+        turnover = company.turnover if company.turnover is not None else metric_values.get("turnover")
+        net_assets = company.net_assets if company.net_assets is not None else metric_values.get("net_assets")
+        current_assets = (
+            company.current_assets if company.current_assets is not None else metric_values.get("current_assets")
+        )
+        creditors = company.creditors if company.creditors is not None else metric_values.get("creditors")
+        cash = company.cash if company.cash is not None else metric_values.get("cash")
 
         current_ratio = None
-        if company.current_assets is not None and company.creditors not in (None, 0):
+        if current_assets is not None and creditors not in (None, 0):
             try:
-                current_ratio = float(company.current_assets / company.creditors)
+                current_ratio = float(current_assets / creditors)
             except Exception:
                 current_ratio = None
 
         return {
             "company": company,
+            "turnover": turnover,
+            "net_assets": net_assets,
+            "current_assets": current_assets,
+            "creditors": creditors,
+            "cash": cash,
             "psc_count": int(psc_count or 0),
             "current_ratio": current_ratio,
         }
@@ -106,29 +141,41 @@ class CompaniesRepository:
             .group_by(PscPerson.company_number)
         )
         psc_counts = {row.company_number: int(row.count) for row in (await self._session.execute(psc_counts_stmt)).all()}
+        left_metrics = await self._get_latest_metric_values(left)
+        right_metrics = await self._get_latest_metric_values(right)
 
-        def _ratio(company: Company) -> float | None:
-            if company.current_assets is None or company.creditors in (None, 0):
+        def _coalesce(company_value: Decimal | None, metric_values: dict[str, Decimal], metric_key: str) -> Decimal | None:
+            if company_value is not None:
+                return company_value
+            return metric_values.get(metric_key)
+
+        def _ratio(current_assets: Decimal | None, creditors: Decimal | None) -> float | None:
+            if current_assets is None or creditors in (None, 0):
                 return None
             try:
-                return float(company.current_assets / company.creditors)
+                return float(current_assets / creditors)
             except Exception:
                 return None
 
-        def _snapshot(company: Company) -> CompareSnapshot:
+        def _snapshot(company: Company, metric_values: dict[str, Decimal]) -> CompareSnapshot:
+            turnover = _coalesce(company.turnover, metric_values, "turnover")
+            net_assets = _coalesce(company.net_assets, metric_values, "net_assets")
+            current_assets = _coalesce(company.current_assets, metric_values, "current_assets")
+            creditors = _coalesce(company.creditors, metric_values, "creditors")
+            cash = _coalesce(company.cash, metric_values, "cash")
             return CompareSnapshot(
                 company_number=company.company_number,
                 name=company.name,
                 status=company.status,
                 region=company.region,
-                turnover=company.turnover,
+                turnover=turnover,
                 employees=company.employees,
-                net_assets=company.net_assets,
-                current_assets=company.current_assets,
-                creditors=company.creditors,
-                cash=company.cash,
+                net_assets=net_assets,
+                current_assets=current_assets,
+                creditors=creditors,
+                cash=cash,
                 psc_count=psc_counts.get(company.company_number, 0),
-                current_ratio=_ratio(company),
+                current_ratio=_ratio(current_assets, creditors),
             )
 
-        return _snapshot(left_company), _snapshot(right_company)
+        return _snapshot(left_company, left_metrics), _snapshot(right_company, right_metrics)
