@@ -1,17 +1,27 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect } from "react";
 import { X } from "@phosphor-icons/react/dist/ssr";
 
 import { PscItem } from "@/lib/api";
 import { formatDate } from "@/lib/format";
+import {
+    buildCompaniesHousePscUrl,
+    formatNatureOfControl,
+    formatPartialDateOfBirth,
+    formatPscKind,
+    getPscStatusLabel,
+} from "@/lib/psc";
 
 export function PscDetailDrawer({
     item,
+    companyNumber,
     open,
     onClose,
 }: {
     item: PscItem | null;
+    companyNumber: string;
     open: boolean;
     onClose: () => void;
 }) {
@@ -33,6 +43,9 @@ export function PscDetailDrawer({
     if (!open || !item) {
         return null;
     }
+
+    const companiesHouseUrl = buildCompaniesHousePscUrl(item.link_self);
+    const relationshipHref = `/psc?company=${encodeURIComponent(companyNumber)}&psc=${encodeURIComponent(item.psc_key)}`;
 
     return (
         <div className="fixed inset-0 z-50 flex justify-end bg-[#1c1c1c]/20 backdrop-blur-[2px]">
@@ -60,11 +73,31 @@ export function PscDetailDrawer({
                 </div>
 
                 <div className="flex-1 space-y-6 overflow-y-auto px-6 py-6">
+                    <div className="flex flex-wrap gap-3">
+                        <Link
+                            href={relationshipHref}
+                            onClick={onClose}
+                            className="inline-flex items-center rounded-full bg-[#1c1c1c] px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-[#2b2b2b]"
+                        >
+                            Open relationship view
+                        </Link>
+                        {companiesHouseUrl ? (
+                            <a
+                                href={companiesHouseUrl}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center rounded-full border border-[#d8e0ea] bg-white px-4 py-2 text-sm font-medium text-[#1c1c1c] transition-colors hover:border-[#b8c7d9] hover:bg-[#f8fafc]"
+                            >
+                                Open Companies House record
+                            </a>
+                        ) : null}
+                    </div>
+
                     <DrawerSection title="Identity">
                         <DrawerRow label="Nationality" value={item.nationality ?? "Unavailable"} />
                         <DrawerRow label="Country of residence" value={item.country_of_residence ?? "Unavailable"} />
                         <DrawerRow label="Date of birth" value={formatPartialDateOfBirth(item.dob_year, item.dob_month)} />
-                        <DrawerRow label="Status" value={item.ceased ? "Ceased" : "Active"} />
+                        <DrawerRow label="Status" value={getPscStatusLabel(item)} />
                         <DrawerRow label="Sanctions" value={item.is_sanctioned ? "Sanctioned" : "No flag"} />
                     </DrawerSection>
 
@@ -122,9 +155,6 @@ export function PscDetailDrawer({
                             ) : null}
                         </DrawerSection>
                     ) : null}
-
-                    {/* TODO: replace hidden raw API links with a user-facing "Open Companies House record" action. */}
-
                 </div>
             </aside>
         </div>
@@ -162,36 +192,6 @@ function DrawerStack({ label, value }: { label: string; value: string }) {
             <div className="mt-2 whitespace-pre-line text-sm font-medium leading-6 text-[#1c1c1c]">{value}</div>
         </div>
     );
-}
-
-function formatPscKind(kind: string): string {
-    return kind
-        .split("-")
-        .filter(Boolean)
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(" ");
-}
-
-function formatNatureOfControl(value: string): string {
-    return value
-        .split("-")
-        .filter(Boolean)
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(" ");
-}
-
-function formatPartialDateOfBirth(year?: number | null, month?: number | null): string {
-    if (!year) {
-        return "Unavailable";
-    }
-    if (!month || month < 1 || month > 12) {
-        return String(year);
-    }
-    const monthLabel = new Date(Date.UTC(year, month - 1, 1)).toLocaleString("en-GB", {
-        month: "long",
-        timeZone: "UTC",
-    });
-    return `${monthLabel} ${year}`;
 }
 
 function formatAddress(address: Record<string, unknown>): string {

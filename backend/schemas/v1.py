@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -17,6 +17,33 @@ class V1CompanySearchItem(BaseModel):
 class V1CompanySearchResponse(BaseModel):
     results: list[V1CompanySearchItem] = Field(default_factory=list)
     next_cursor: str | None = None
+
+
+class V1GlobalCompanySearchItem(BaseModel):
+    kind: Literal["company"] = "company"
+    company_number: str
+    name: str
+    status: str | None = None
+    score: float = 0.0
+
+
+class V1GlobalPscSearchItem(BaseModel):
+    kind: Literal["psc"] = "psc"
+    psc_key: str
+    company_number: str
+    company_name: str
+    company_status: str | None = None
+    name: str
+    psc_kind: str
+    ceased: bool | None = None
+    dob_year: int | None = None
+    dob_month: int | None = None
+    score: float = 0.0
+
+
+class V1GlobalSearchResponse(BaseModel):
+    companies: list[V1GlobalCompanySearchItem] = Field(default_factory=list)
+    psc: list[V1GlobalPscSearchItem] = Field(default_factory=list)
 
 
 class V1CompanyDetailResponse(BaseModel):
@@ -118,6 +145,25 @@ class V1PscItem(BaseModel):
 class V1PscListResponse(BaseModel):
     company_number: str
     items: list[V1PscItem] = Field(default_factory=list)
+
+
+class V1PscRelationshipCompany(BaseModel):
+    company_number: str
+    company_name: str
+    company_status: str | None = None
+    is_seed: bool = False
+    psc: V1PscItem
+
+
+class V1PscRelationshipResponse(BaseModel):
+    seed_company_number: str
+    seed_company_name: str
+    seed_company_status: str | None = None
+    seed: V1PscItem
+    linkable: bool
+    match_basis: str | None = None
+    link_issue: str | None = None
+    linked_companies: list[V1PscRelationshipCompany] = Field(default_factory=list)
 
 
 class V1ListCreateRequest(BaseModel):

@@ -17,7 +17,12 @@ import {
 } from "@phosphor-icons/react/dist/ssr";
 
 import { useCompanyTabs } from "@/components/app/company-tabs-provider";
-import { searchCompanies, type CompanySearchResult } from "@/lib/api";
+import {
+  type EntitySearchCompanyResult,
+  type EntitySearchPscResult,
+  searchEntities,
+} from "@/lib/api";
+import { formatPartialDateOfBirth, formatPscKind } from "@/lib/psc";
 
 type SidebarIcon = React.ComponentType<{
   className?: string;
@@ -57,7 +62,8 @@ export function TerminalShell({
   const { tabs, upsertTab, closeTab } = useCompanyTabs();
 
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState<CompanySearchResult[]>([]);
+  const [companyResults, setCompanyResults] = useState<EntitySearchCompanyResult[]>([]);
+  const [pscResults, setPscResults] = useState<EntitySearchPscResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -79,7 +85,8 @@ export function TerminalShell({
 
   useEffect(() => {
     if (query.trim().length < 2) {
-      setResults([]);
+      setCompanyResults([]);
+      setPscResults([]);
       setSearchError(null);
       setIsLoading(false);
       return;
@@ -90,14 +97,16 @@ export function TerminalShell({
       try {
         setIsLoading(true);
         setSearchError(null);
-        const nextResults = await searchCompanies(query, 6);
+        const payload = await searchEntities(query, 6);
         if (!cancelled) {
-          setResults(nextResults);
+          setCompanyResults(payload.companies ?? []);
+          setPscResults(payload.psc ?? []);
           setDropdownOpen(true);
         }
       } catch (error) {
         if (!cancelled) {
-          setResults([]);
+          setCompanyResults([]);
+          setPscResults([]);
           setSearchError(error instanceof Error ? error.message : "Search failed");
           setDropdownOpen(true);
         }
@@ -125,17 +134,27 @@ export function TerminalShell({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  function openCompany(result: CompanySearchResult) {
+  function openCompany(result: EntitySearchCompanyResult) {
     const companyNumber = result.company_number.trim().toUpperCase();
     upsertTab({
       companyNumber,
       name: result.name.trim() || companyNumber,
     });
     setQuery("");
-    setResults([]);
+    setCompanyResults([]);
+    setPscResults([]);
     setSearchError(null);
     setDropdownOpen(false);
     router.push(`/company/${companyNumber}`);
+  }
+
+  function openPsc(result: EntitySearchPscResult) {
+    setQuery("");
+    setCompanyResults([]);
+    setPscResults([]);
+    setSearchError(null);
+    setDropdownOpen(false);
+    router.push(`/psc?company=${encodeURIComponent(result.company_number)}&psc=${encodeURIComponent(result.psc_key)}`);
   }
 
   function closeCompanyTab(companyNumber: string) {
@@ -152,8 +171,12 @@ export function TerminalShell({
   }
 
   function submitSearch() {
-    if (results.length > 0) {
-      openCompany(results[0]);
+    if (companyResults.length > 0) {
+      openCompany(companyResults[0]);
+      return;
+    }
+    if (pscResults.length > 0) {
+      openPsc(pscResults[0]);
     }
   }
 
@@ -193,7 +216,7 @@ export function TerminalShell({
                   setDropdownOpen(true);
                 }}
                 onFocus={() => {
-                  if (results.length > 0 || searchError) {
+                  if (companyResults.length > 0 || pscResults.length > 0 || searchError) {
                     setDropdownOpen(true);
                   }
                 }}
@@ -203,7 +226,7 @@ export function TerminalShell({
                     submitSearch();
                   }
                 }}
-                placeholder="Search entity, director, or SIC..."
+                placeholder="Search company or PSC..."
                 className="w-full border-none bg-transparent text-sm font-medium outline-none"
               />
             </div>
@@ -212,26 +235,63 @@ export function TerminalShell({
               <div className="cb-card absolute left-0 right-0 top-[calc(100%+0.5rem)] z-30 overflow-hidden rounded-2xl">
                 {isLoading ? <SearchStateRow label="Searching..." /> : null}
                 {!isLoading && searchError ? <SearchStateRow label={searchError} muted /> : null}
-                {!isLoading && !searchError && results.length === 0 ? <SearchStateRow label="No companies found" muted /> : null}
+                {!isLoading && !searchError && companyResults.length === 0 && pscResults.length === 0 ? (
+                  <SearchStateRow label="No companies or PSCs found" muted />
+                ) : null}
                 {!isLoading && !searchError
-                  ? results.map((result) => (
-                      <button
-                        key={result.company_number}
-                        onClick={() => openCompany(result)}
-                        className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-[var(--cb-neutral-1)]"
-                      >
-                        <div>
-                          <p className="text-sm font-semibold text-[var(--cb-text-strong)]">{result.name}</p>
-                          <p className="mt-1 text-xs text-[var(--cb-text-muted)]">
-                            Co. {result.company_number}
-                            {result.status ? `  •  ${result.status}` : ""}
-                          </p>
-                        </div>
-                        <span className="text-xs font-semibold text-[var(--astronaut-700)]">
-                          {typeof result.score === "number" ? result.score.toFixed(2) : ""}
-                        </span>
-                      </button>
-                    ))
+                  ? (
+                      <>
+                        {companyResults.length > 0 ? (
+                          <>
+                            <SearchSectionLabel label="Companies" />
+                            {companyResults.map((result) => (
+                              <button
+                                key={result.company_number}
+                                onClick={() => openCompany(result)}
+                                className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-[var(--cb-neutral-1)]"
+                              >
+                                <div>
+                                  <p className="text-sm font-semibold text-[var(--cb-text-strong)]">{result.name}</p>
+                                  <p className="mt-1 text-xs text-[var(--cb-text-muted)]">
+                                    Co. {result.company_number}
+                                    {result.status ? `  •  ${result.status}` : ""}
+                                  </p>
+                                </div>
+                                <span className="text-xs font-semibold text-[var(--astronaut-700)]">
+                                  {typeof result.score === "number" ? result.score.toFixed(2) : ""}
+                                </span>
+                              </button>
+                            ))}
+                          </>
+                        ) : null}
+                        {pscResults.length > 0 ? (
+                          <>
+                            <SearchSectionLabel label="People with Significant Control" />
+                            {pscResults.map((result) => (
+                              <button
+                                key={`${result.company_number}-${result.psc_key}`}
+                                onClick={() => openPsc(result)}
+                                className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-[var(--cb-neutral-1)]"
+                              >
+                                <div className="min-w-0">
+                                  <p className="text-sm font-semibold text-[var(--cb-text-strong)]">{result.name}</p>
+                                  <p className="mt-1 text-xs text-[var(--cb-text-muted)]">
+                                    {formatPscKind(result.psc_kind)}
+                                    {(result.dob_year || result.dob_month) ? `  •  ${formatPartialDateOfBirth(result.dob_year, result.dob_month)}` : ""}
+                                  </p>
+                                  <p className="mt-1 truncate text-xs text-[var(--cb-text-subtle)]">
+                                    {result.company_name}  •  Co. {result.company_number}
+                                  </p>
+                                </div>
+                                <span className="ml-4 text-xs font-semibold text-[var(--astronaut-700)]">
+                                  {result.ceased ? "Ceased" : "Active"}
+                                </span>
+                              </button>
+                            ))}
+                          </>
+                        ) : null}
+                      </>
+                    )
                   : null}
               </div>
             ) : null}
@@ -358,6 +418,14 @@ function TabPill({
 function SearchStateRow({ label, muted = false }: { label: string; muted?: boolean }) {
   return (
     <div className={`px-4 py-3 text-sm ${muted ? "text-[var(--cb-text-muted)]" : "text-[var(--cb-text-strong)]"}`}>
+      {label}
+    </div>
+  );
+}
+
+function SearchSectionLabel({ label }: { label: string }) {
+  return (
+    <div className="px-4 pb-2 pt-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--cb-text-subtle)]">
       {label}
     </div>
   );

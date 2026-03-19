@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { ArrowRight, ArrowUpRight, ChartLineUp } from "@phosphor-icons/react/dist/ssr";
 import {
     CartesianGrid,
@@ -25,6 +26,7 @@ import {
     formatInteger,
     formatRatio,
 } from "@/lib/format";
+import { formatPscKind } from "@/lib/psc";
 import { useCompanyData } from "./company-context";
 import { PscDetailDrawer } from "./psc-detail-drawer";
 
@@ -133,6 +135,7 @@ const balanceSheetGroups: MetricGroupConfig[] = [
 
 export default function CompanyDashboardPage() {
     const { companyId, overview, detail, psc } = useCompanyData();
+    const router = useRouter();
     const [selectedPscKey, setSelectedPscKey] = useState<string | null>(null);
     const [isPscDrawerOpen, setIsPscDrawerOpen] = useState(false);
     const [seriesState, setSeriesState] = useState<SeriesState>(() => ({
@@ -269,22 +272,15 @@ export default function CompanyDashboardPage() {
         [balanceCards],
     );
 
-    const selectedPsc = useMemo(
-        () => psc.find((item) => item.psc_key === selectedPscKey) ?? psc[0] ?? null,
+    const activePscKey = useMemo(
+        () => (selectedPscKey && psc.some((item) => item.psc_key === selectedPscKey) ? selectedPscKey : psc[0]?.psc_key ?? null),
         [psc, selectedPscKey],
     );
 
-    useEffect(() => {
-        if (psc.length === 0) {
-            setSelectedPscKey(null);
-            setIsPscDrawerOpen(false);
-            return;
-        }
-
-        if (!selectedPscKey || !psc.some((item) => item.psc_key === selectedPscKey)) {
-            setSelectedPscKey(psc[0].psc_key);
-        }
-    }, [psc, selectedPscKey]);
+    const selectedPsc = useMemo(
+        () => psc.find((item) => item.psc_key === activePscKey) ?? psc[0] ?? null,
+        [activePscKey, psc],
+    );
 
     const latestVisibleFinancialFactDate = useMemo(() => {
         const resolvedPeriods = [
@@ -307,17 +303,15 @@ export default function CompanyDashboardPage() {
         Boolean(latestVisibleFinancialFactDate) &&
         accountsMadeUpTo! > latestVisibleFinancialFactDate!;
 
-    const openSelectedPsc = () => {
-        if (!selectedPsc) {
-            return;
-        }
-        setIsPscDrawerOpen(true);
+    const openPscListPage = () => {
+        router.push(`/company/${encodeURIComponent(companyId)}/psc`);
     };
 
     return (
         <div className="flex h-full w-full flex-col space-y-6 pb-6">
             <PscDetailDrawer
                 item={selectedPsc}
+                companyNumber={companyId}
                 open={isPscDrawerOpen}
                 onClose={() => setIsPscDrawerOpen(false)}
             />
@@ -366,17 +360,21 @@ export default function CompanyDashboardPage() {
                 <BentoCard
                     title="PSC Snapshot"
                     action={<ArrowUpRight className="w-4 h-4" />}
-                    onActionClick={openSelectedPsc}
+                    onActionClick={openPscListPage}
                 >
                     <div className="flex h-full flex-col justify-between gap-6">
                         <div>
                             <div className="text-[72px] font-light leading-none tracking-tighter text-[#1c1c1c]">
                                 {formatInteger(overview?.psc_count ?? psc.length)}
                             </div>
-                            <div className="mt-3 inline-flex items-center rounded-full bg-[#dfedfa] px-3 py-1 text-sm font-medium text-[#5193e0]">
+                            <button
+                                type="button"
+                                onClick={openPscListPage}
+                                className="mt-3 inline-flex items-center rounded-full bg-[#dfedfa] px-3 py-1 text-sm font-medium text-[#5193e0] transition-colors hover:bg-[#d4e8fb]"
+                            >
                                 <ChartLineUp weight="bold" className="mr-1" />
                                 People with significant control
-                            </div>
+                            </button>
                         </div>
                         <div className="space-y-3">
                             {psc.length > 0 ? (
@@ -384,7 +382,7 @@ export default function CompanyDashboardPage() {
                                     <PscCard
                                         key={item.psc_key}
                                         item={item}
-                                        isSelected={selectedPscKey === item.psc_key}
+                                        isSelected={activePscKey === item.psc_key}
                                         onSelect={(pscKey) => {
                                             setSelectedPscKey(pscKey);
                                             setIsPscDrawerOpen(true);
@@ -718,14 +716,6 @@ function MetricGroup({
             </div>
         </div>
     );
-}
-
-function formatPscKind(kind: string): string {
-    return kind
-        .split("-")
-        .filter(Boolean)
-        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-        .join(" ");
 }
 
 function ChartPanel({

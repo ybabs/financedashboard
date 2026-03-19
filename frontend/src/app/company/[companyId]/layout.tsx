@@ -93,7 +93,7 @@ function CompanyLayoutInner({
                         chromeClassName="h-11 rounded-full bg-white shadow-[0_2px_10px_rgba(0,0,0,0.03)] transition-all focus-within:ring-2 focus-within:ring-[#5193e0]/20"
                         inputClassName="h-11 w-full rounded-full bg-transparent pl-12 pr-16 text-sm font-medium text-[#1c1c1c] placeholder:text-[#a0a0a0] outline-none"
                         buttonClassName="absolute right-1.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-[#5193e0] text-white transition-colors hover:bg-[#3d79d3]"
-                        placeholder="Search entity, director, or SIC..."
+                        placeholder="Search company or PSC..."
                     />
 
                     <div className="flex items-center space-x-4">

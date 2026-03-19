@@ -12,6 +12,33 @@ export interface CompanySearchResponse {
   next_cursor: string | null;
 }
 
+export type EntitySearchCompanyResult = {
+  kind: "company";
+  company_number: string;
+  name: string;
+  status?: string | null;
+  score?: number;
+};
+
+export type EntitySearchPscResult = {
+  kind: "psc";
+  psc_key: string;
+  company_number: string;
+  company_name: string;
+  company_status?: string | null;
+  name: string;
+  psc_kind: string;
+  ceased?: boolean | null;
+  dob_year?: number | null;
+  dob_month?: number | null;
+  score?: number;
+};
+
+export interface EntitySearchResponse {
+  companies: EntitySearchCompanyResult[];
+  psc: EntitySearchPscResult[];
+}
+
 export interface CompanyDetailResponse {
   company_number: string;
   name: string;
@@ -95,6 +122,25 @@ export interface PscListResponse {
   items: PscItem[];
 }
 
+export interface PscRelationshipCompany {
+  company_number: string;
+  company_name: string;
+  company_status: string | null;
+  is_seed: boolean;
+  psc: PscItem;
+}
+
+export interface PscRelationshipResponse {
+  seed_company_number: string;
+  seed_company_name: string;
+  seed_company_status: string | null;
+  seed: PscItem;
+  linkable: boolean;
+  match_basis: string | null;
+  link_issue: string | null;
+  linked_companies: PscRelationshipCompany[];
+}
+
 export interface FinancialSeriesPoint {
   period_date: string;
   value: string | number;
@@ -163,6 +209,19 @@ export async function searchCompanies(query: string, limit = 6): Promise<Company
   return payload.results ?? [];
 }
 
+export async function searchEntities(query: string, limit = 6): Promise<EntitySearchResponse> {
+  const trimmed = query.trim();
+  if (trimmed.length < 2) {
+    return { companies: [], psc: [] };
+  }
+
+  const params = new URLSearchParams({
+    q: trimmed,
+    limit: String(limit),
+  });
+  return request<EntitySearchResponse>(`/v1/search?${params.toString()}`);
+}
+
 export function getCompany(companyNumber: string): Promise<CompanyDetailResponse> {
   return request<CompanyDetailResponse>(
     `/v1/companies/${encodeURIComponent(companyNumber)}`,
@@ -180,6 +239,17 @@ export function getCompanyPsc(companyNumber: string, limit = 5): Promise<PscList
   return request<PscListResponse>(
     `/v1/companies/${encodeURIComponent(companyNumber)}/psc?${params.toString()}`,
   );
+}
+
+export function getPscRelationships(
+  companyNumber: string,
+  pscKey: string,
+): Promise<PscRelationshipResponse> {
+  const params = new URLSearchParams({
+    company: companyNumber,
+    psc: pscKey,
+  });
+  return request<PscRelationshipResponse>(`/v1/psc/relationships?${params.toString()}`);
 }
 
 export function getFinancialSeries(

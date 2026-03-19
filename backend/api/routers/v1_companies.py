@@ -35,6 +35,10 @@ def _psc_display_name(name: str | None) -> str:
     return normalized or "Name unavailable"
 
 
+def _psc_has_ceased(item) -> bool | None:
+    return bool(getattr(item, "ceased", None)) or bool(getattr(item, "ceased_on", None))
+
+
 @router.get("/search", response_model=V1CompanySearchResponse)
 async def search_companies(
     q: str = Query(..., min_length=2, description="Search query"),
@@ -178,7 +182,7 @@ async def get_company_psc(
                 natures_of_control=getattr(item, "natures_of_control", None) or [],
                 nationality=getattr(item, "nationality", None),
                 country_of_residence=getattr(item, "country_of_residence", None),
-                ceased=getattr(item, "ceased", None),
+                ceased=_psc_has_ceased(item),
                 is_sanctioned=getattr(item, "is_sanctioned", None),
                 notified_on=getattr(item, "notified_on", None),
                 ceased_on=getattr(item, "ceased_on", None),

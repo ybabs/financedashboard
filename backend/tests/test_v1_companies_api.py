@@ -232,3 +232,36 @@ async def test_v1_company_psc_normalizes_missing_name(client, monkeypatch, make_
     assert res.status_code == 200
     body = res.json()
     assert body["items"][0]["name"] == "Name unavailable"
+
+
+@pytest.mark.anyio
+async def test_v1_company_psc_infers_ceased_from_ceased_on(client, monkeypatch, make_auth_headers):
+    class FakeRepo:
+        def __init__(self, session):
+            self.session = session
+
+        async def get_psc(self, company_number: str, limit: int):
+            return [
+                SimpleNamespace(
+                    psc_key="psc-ceased",
+                    name="Example Ceased PSC",
+                    kind="individual-person-with-significant-control",
+                    natures_of_control=[],
+                    nationality="British",
+                    country_of_residence="United Kingdom",
+                    ceased=False,
+                    notified_on=date(2020, 1, 1),
+                    ceased_on=date(2025, 4, 1),
+                )
+            ]
+
+    monkeypatch.setattr(v1_companies_router, "CompaniesRepository", FakeRepo)
+    res = await client.get(
+        "/v1/companies/09092149/psc",
+        params={"limit": 10},
+        headers=make_auth_headers(),
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["items"][0]["ceased"] is True
+    assert body["items"][0]["ceased_on"] == "2025-04-01"

@@ -73,7 +73,7 @@ export default function GlobalDashboard() {
             chromeClassName="relative flex items-center bg-[#0a0a0a]/80 backdrop-blur-xl border border-white/10 rounded-2xl shadow-2xl transition-all focus-within:border-[#5193e0]/50 focus-within:bg-[#0a0a0a]"
             inputClassName="block w-full bg-transparent py-5 pl-14 pr-20 border-none text-white placeholder-[#666666] focus:outline-none focus:ring-0 text-lg font-medium"
             buttonClassName="absolute right-4 top-1/2 flex -translate-y-1/2 items-center justify-center rounded-xl bg-[#5193e0] p-3 text-white transition-colors shadow-lg shadow-[#5193e0]/25 hover:bg-[#3d79d3]"
-            placeholder="Search by entity name or company number..."
+            placeholder="Search by company name, number, or PSC..."
           />
 
           <div className="pointer-events-none absolute right-20 top-1/2 hidden -translate-y-1/2 items-center text-[#666666] bg-white/5 border border-white/10 px-2.5 py-1 rounded-lg text-xs font-semibold md:flex">
