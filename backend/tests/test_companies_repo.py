@@ -261,3 +261,15 @@ async def test_get_psc_relationships_returns_seed_only_when_dob_missing():
     assert payload["link_issue"] == "missing_name_or_date_of_birth"
     assert len(payload["linked_companies"]) == 1
     assert payload["linked_companies"][0]["is_seed"] is True
+
+
+@pytest.mark.anyio
+async def test_search_psc_returns_empty_for_short_queries_without_hitting_db():
+    class SessionShouldNotExecute:
+        async def execute(self, stmt, params=None):
+            raise AssertionError("search_psc should not execute SQL for short queries")
+
+    repo = CompaniesRepository(SessionShouldNotExecute())
+    results = await repo.search_psc("pa", limit=6)
+
+    assert results == []

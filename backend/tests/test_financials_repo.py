@@ -217,3 +217,103 @@ async def test_get_series_from_raw_supports_zero_employee_values(monkeypatch):
     assert len(series) == 1
     assert series[0]["value"] == Decimal("0")
     assert series[0]["priority"] == 10
+
+
+@pytest.mark.anyio
+async def test_get_company_filing_snapshot_resolves_current_period_metrics_only():
+    dict_rows = [
+        _DictRow(metric_key="turnover", xbrl_tag_normalized="turnoverrevenue", priority=10),
+        _DictRow(metric_key="net_assets", xbrl_tag_normalized="netassetsliabilities", priority=10),
+    ]
+
+    class SessionWithFilingFacts:
+        async def execute(self, stmt, params=None):
+            sql_text = str(stmt)
+            if "FROM ixbrl_documents" in sql_text:
+                return SimpleNamespace(
+                    all=lambda: [
+                        SimpleNamespace(
+                            document_id=3394,
+                            company_number="08875186",
+                            source_path="Prod223_4173_08875186_20260228.html",
+                            doc_type="IXBRL",
+                            parsed_at=date(2026, 3, 11),
+                            period_start=date(2024, 2, 29),
+                            period_end=date(2026, 2, 28),
+                            period_instant=date(2026, 2, 28),
+                            current_period_date=date(2026, 2, 28),
+                        )
+                    ]
+                )
+            if "financial_metric_dictionary" in sql_text:
+                return _ScalarResult(dict_rows)
+            if "FROM ixbrl_facts" in sql_text:
+                return SimpleNamespace(
+                    all=lambda: [
+                        SimpleNamespace(
+                            name_raw="core:TurnoverRevenue",
+                            numeric_value=Decimal("957692"),
+                            has_dimensions=False,
+                            period_date=date(2026, 2, 28),
+                        ),
+                        SimpleNamespace(
+                            name_raw="core:TurnoverRevenue",
+                            numeric_value=Decimal("900000"),
+                            has_dimensions=False,
+                            period_date=date(2025, 2, 28),
+                        ),
+                        SimpleNamespace(
+                            name_raw="core:NetAssetsLiabilities",
+                            numeric_value=Decimal("6153208"),
+                            has_dimensions=False,
+                            period_date=date(2026, 2, 28),
+                        ),
+                    ]
+                )
+            raise AssertionError(f"Unexpected SQL executed: {sql_text}")
+
+    repo = FinancialsRepository(SessionWithFilingFacts())
+    payload = await repo.get_company_filing_snapshot(company_number="08875186", document_id=3394)
+
+    assert payload is not None
+    assert payload["filing"].document_id == 3394
+    metrics = {item.metric_key: item for item in payload["metrics"]}
+    assert metrics["turnover"].value == Decimal("957692")
+    assert metrics["net_assets"].value == Decimal("6153208")
+    assert metrics["turnover"].period_date == date(2026, 2, 28)
+
+
+@pytest.mark.anyio
+async def test_compare_company_filings_calculates_delta(monkeypatch):
+    repo = FinancialsRepository(_SessionForDictionaryOnly(rows=[]))
+
+    async def _fake_snapshot(company_number: str, document_id: int):
+        if document_id == 3394:
+            return {
+                "filing": SimpleNamespace(document_id=3394),
+                "metrics": [
+                    SimpleNamespace(metric_key="turnover", value=Decimal("957692")),
+                    SimpleNamespace(metric_key="net_assets", value=Decimal("6153208")),
+                ],
+            }
+        if document_id == 3392:
+            return {
+                "filing": SimpleNamespace(document_id=3392),
+                "metrics": [
+                    SimpleNamespace(metric_key="turnover", value=Decimal("900000")),
+                ],
+            }
+        return None
+
+    monkeypatch.setattr(repo, "get_company_filing_snapshot", _fake_snapshot)
+
+    payload = await repo.compare_company_filings(
+        company_number="08875186",
+        left_document_id=3394,
+        right_document_id=3392,
+    )
+
+    assert payload is not None
+    metrics = {item["metric_key"]: item for item in payload["metrics"]}
+    assert metrics["turnover"]["delta"] == Decimal("57692")
+    assert metrics["net_assets"]["right_value"] is None

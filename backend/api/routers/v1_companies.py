@@ -14,6 +14,12 @@ from schemas.v1 import (
     V1CompanyCompareResponse,
     V1CompanyCompareSide,
     V1CompanyDetailResponse,
+    V1CompanyFilingCompareMetric,
+    V1CompanyFilingCompareResponse,
+    V1CompanyFilingHistoryResponse,
+    V1CompanyFilingItem,
+    V1CompanyFilingMetricValue,
+    V1CompanyFilingSnapshotResponse,
     V1CompanyOverviewResponse,
     V1CompanySearchItem,
     V1CompanySearchResponse,
@@ -135,6 +141,124 @@ async def get_company_overview(
         psc_count=payload["psc_count"],
         current_ratio=payload["current_ratio"],
         updated_at=company.updated_at,
+    )
+
+
+@router.get("/{company_number}/filings", response_model=V1CompanyFilingHistoryResponse)
+async def get_company_filings(
+    company_number: str,
+    session: AsyncSession = Depends(get_session),
+):
+    financials_repo = FinancialsRepository(session)
+    items = await financials_repo.list_company_filings(company_number=company_number.strip().upper())
+    return V1CompanyFilingHistoryResponse(
+        company_number=company_number.strip().upper(),
+        items=[
+            V1CompanyFilingItem(
+                document_id=item.document_id,
+                company_number=item.company_number,
+                source_path=item.source_path,
+                doc_type=item.doc_type,
+                parsed_at=item.parsed_at,
+                period_start=item.period_start,
+                period_end=item.period_end,
+                period_instant=item.period_instant,
+                current_period_date=item.current_period_date,
+            )
+            for item in items
+        ],
+    )
+
+
+@router.get("/{company_number}/filings/compare", response_model=V1CompanyFilingCompareResponse)
+async def compare_company_filings(
+    company_number: str,
+    left_document_id: int = Query(..., ge=1),
+    right_document_id: int = Query(..., ge=1),
+    session: AsyncSession = Depends(get_session),
+):
+    financials_repo = FinancialsRepository(session)
+    payload = await financials_repo.compare_company_filings(
+        company_number=company_number.strip().upper(),
+        left_document_id=left_document_id,
+        right_document_id=right_document_id,
+    )
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Filing comparison not found")
+    return V1CompanyFilingCompareResponse(
+        company_number=company_number.strip().upper(),
+        left_filing=V1CompanyFilingItem(
+            document_id=payload["left_filing"].document_id,
+            company_number=payload["left_filing"].company_number,
+            source_path=payload["left_filing"].source_path,
+            doc_type=payload["left_filing"].doc_type,
+            parsed_at=payload["left_filing"].parsed_at,
+            period_start=payload["left_filing"].period_start,
+            period_end=payload["left_filing"].period_end,
+            period_instant=payload["left_filing"].period_instant,
+            current_period_date=payload["left_filing"].current_period_date,
+        ),
+        right_filing=V1CompanyFilingItem(
+            document_id=payload["right_filing"].document_id,
+            company_number=payload["right_filing"].company_number,
+            source_path=payload["right_filing"].source_path,
+            doc_type=payload["right_filing"].doc_type,
+            parsed_at=payload["right_filing"].parsed_at,
+            period_start=payload["right_filing"].period_start,
+            period_end=payload["right_filing"].period_end,
+            period_instant=payload["right_filing"].period_instant,
+            current_period_date=payload["right_filing"].current_period_date,
+        ),
+        metrics=[
+            V1CompanyFilingCompareMetric(
+                metric_key=item["metric_key"],
+                left_value=item["left_value"],
+                right_value=item["right_value"],
+                delta=item["delta"],
+                delta_pct=item["delta_pct"],
+            )
+            for item in payload["metrics"]
+        ],
+    )
+
+
+@router.get("/{company_number}/filings/{document_id}/snapshot", response_model=V1CompanyFilingSnapshotResponse)
+async def get_company_filing_snapshot(
+    company_number: str,
+    document_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    financials_repo = FinancialsRepository(session)
+    payload = await financials_repo.get_company_filing_snapshot(
+        company_number=company_number.strip().upper(),
+        document_id=document_id,
+    )
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Filing not found")
+    filing = payload["filing"]
+    return V1CompanyFilingSnapshotResponse(
+        company_number=company_number.strip().upper(),
+        filing=V1CompanyFilingItem(
+            document_id=filing.document_id,
+            company_number=filing.company_number,
+            source_path=filing.source_path,
+            doc_type=filing.doc_type,
+            parsed_at=filing.parsed_at,
+            period_start=filing.period_start,
+            period_end=filing.period_end,
+            period_instant=filing.period_instant,
+            current_period_date=filing.current_period_date,
+        ),
+        metrics=[
+            V1CompanyFilingMetricValue(
+                metric_key=item.metric_key,
+                value=item.value,
+                period_date=item.period_date,
+                source_count=item.source_count,
+                priority=item.priority,
+            )
+            for item in payload["metrics"]
+        ],
     )
 
 

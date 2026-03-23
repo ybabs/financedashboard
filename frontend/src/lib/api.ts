@@ -152,6 +152,52 @@ export interface FinancialSeriesResponse {
   points: FinancialSeriesPoint[];
 }
 
+export interface CompanyFilingItem {
+  document_id: number;
+  company_number: string;
+  source_path: string;
+  doc_type: string;
+  parsed_at: string;
+  period_start: string | null;
+  period_end: string | null;
+  period_instant: string | null;
+  current_period_date: string | null;
+}
+
+export interface CompanyFilingHistoryResponse {
+  company_number: string;
+  items: CompanyFilingItem[];
+}
+
+export interface CompanyFilingMetricValue {
+  metric_key: string;
+  value: string | number;
+  period_date: string | null;
+  source_count: number;
+  priority: number;
+}
+
+export interface CompanyFilingSnapshotResponse {
+  company_number: string;
+  filing: CompanyFilingItem;
+  metrics: CompanyFilingMetricValue[];
+}
+
+export interface CompanyFilingCompareMetric {
+  metric_key: string;
+  left_value: string | number | null;
+  right_value: string | number | null;
+  delta: string | number | null;
+  delta_pct: number | null;
+}
+
+export interface CompanyFilingCompareResponse {
+  company_number: string;
+  left_filing: CompanyFilingItem;
+  right_filing: CompanyFilingItem;
+  metrics: CompanyFilingCompareMetric[];
+}
+
 export interface FinancialMetricDefinition {
   metric_key: string;
   tags: string[];
@@ -209,7 +255,11 @@ export async function searchCompanies(query: string, limit = 6): Promise<Company
   return payload.results ?? [];
 }
 
-export async function searchEntities(query: string, limit = 6): Promise<EntitySearchResponse> {
+export async function searchEntities(
+  query: string,
+  limit = 6,
+  options?: { signal?: AbortSignal },
+): Promise<EntitySearchResponse> {
   const trimmed = query.trim();
   if (trimmed.length < 2) {
     return { companies: [], psc: [] };
@@ -219,7 +269,7 @@ export async function searchEntities(query: string, limit = 6): Promise<EntitySe
     q: trimmed,
     limit: String(limit),
   });
-  return request<EntitySearchResponse>(`/v1/search?${params.toString()}`);
+  return request<EntitySearchResponse>(`/v1/search?${params.toString()}`, { signal: options?.signal });
 }
 
 export function getCompany(companyNumber: string): Promise<CompanyDetailResponse> {
@@ -238,6 +288,35 @@ export function getCompanyPsc(companyNumber: string, limit = 5): Promise<PscList
   const params = new URLSearchParams({ limit: String(limit) });
   return request<PscListResponse>(
     `/v1/companies/${encodeURIComponent(companyNumber)}/psc?${params.toString()}`,
+  );
+}
+
+export function getCompanyFilings(companyNumber: string): Promise<CompanyFilingHistoryResponse> {
+  return request<CompanyFilingHistoryResponse>(
+    `/v1/companies/${encodeURIComponent(companyNumber)}/filings`,
+  );
+}
+
+export function getCompanyFilingSnapshot(
+  companyNumber: string,
+  documentId: number,
+): Promise<CompanyFilingSnapshotResponse> {
+  return request<CompanyFilingSnapshotResponse>(
+    `/v1/companies/${encodeURIComponent(companyNumber)}/filings/${documentId}/snapshot`,
+  );
+}
+
+export function compareCompanyFilings(
+  companyNumber: string,
+  leftDocumentId: number,
+  rightDocumentId: number,
+): Promise<CompanyFilingCompareResponse> {
+  const params = new URLSearchParams({
+    left_document_id: String(leftDocumentId),
+    right_document_id: String(rightDocumentId),
+  });
+  return request<CompanyFilingCompareResponse>(
+    `/v1/companies/${encodeURIComponent(companyNumber)}/filings/compare?${params.toString()}`,
   );
 }
 

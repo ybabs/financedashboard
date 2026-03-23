@@ -1,7 +1,7 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from dataclasses import dataclass
 from decimal import Decimal
-from sqlalchemy import Float, asc, cast, desc, func, or_, select, text
+from sqlalchemy import Float, asc, case, cast, desc, func, or_, select, text
 from sqlalchemy.exc import ProgrammingError
 
 from models.company import Company
@@ -93,7 +93,20 @@ class CompaniesRepository:
         return result.all()
 
     async def search_psc(self, q: str, limit: int = 10):
-        sim_score = func.similarity(func.coalesce(PscPerson.name, ""), q)
+        normalized_q = q.strip()
+        if len(normalized_q) < 4:
+            return []
+
+        psc_name = func.coalesce(PscPerson.name, "")
+        contains_match = psc_name.ilike(f"%{normalized_q}%")
+        prefix_match = psc_name.ilike(f"{normalized_q}%")
+        word_match = psc_name.ilike(f"% {normalized_q}%")
+        rank_score = case(
+            (prefix_match, 1.0),
+            (word_match, 0.95),
+            (contains_match, 0.75),
+            else_=0.0,
+        )
 
         stmt = (
             select(
@@ -106,18 +119,14 @@ class CompaniesRepository:
                 PscPerson.ceased,
                 PscPerson.dob_year,
                 PscPerson.dob_month,
-                cast(sim_score, Float).label("sim_score"),
+                cast(rank_score, Float).label("sim_score"),
             )
             .join(Company, Company.company_number == PscPerson.company_number)
-            .where(
-                or_(
-                    PscPerson.name.ilike(f"%{q}%"),
-                    PscPerson.name.op("%")(q),
-                )
-            )
+            .where(contains_match)
             .order_by(
                 asc(func.coalesce(PscPerson.ceased, False)),
-                desc(sim_score),
+                desc(prefix_match),
+                desc(word_match),
                 asc(PscPerson.name),
                 asc(PscPerson.company_number),
             )
@@ -142,8 +151,9 @@ class CompaniesRepository:
         ]
 
     async def search_global(self, q: str, limit: int = 10):
-        companies = await self.search(q=q, limit=limit, offset=0)
-        psc = await self.search_psc(q=q, limit=limit)
+        normalized_q = q.strip()
+        companies = await self.search(q=normalized_q, limit=limit, offset=0)
+        psc = await self.search_psc(q=normalized_q, limit=limit)
         return {
             "companies": companies,
             "psc": psc,

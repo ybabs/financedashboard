@@ -1,6 +1,7 @@
 "use client";
 
 import { use } from "react";
+import { useRouter } from "next/navigation";
 import type { Icon } from "@phosphor-icons/react";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import {
@@ -45,6 +46,7 @@ function CompanyLayoutInner({
     jakartaClassName: string;
 }) {
     const { companyId, detail, overview, isLoading, error } = useCompanyData();
+    const router = useRouter();
     const displayName = detail?.name ?? overview?.name ?? companyId;
     const statusLabel = detail?.status ?? overview?.status ?? "unknown";
     const normalizedStatus = statusLabel.toLowerCase();
@@ -144,7 +146,11 @@ function CompanyLayoutInner({
                             </div>
                         </div>
                         <div className="flex items-center gap-3">
-                            <QuickFact label="Accounts" value={detail?.last_accounts_made_up_to ? formatDate(detail.last_accounts_made_up_to) : "—"} />
+                            <QuickFact
+                                label="Accounts"
+                                value={detail?.last_accounts_made_up_to ? formatDate(detail.last_accounts_made_up_to) : "—"}
+                                onClick={() => router.push(`/company/${encodeURIComponent(companyId)}/filings`)}
+                            />
                             {hasValue(turnoverValue) ? (
                                 <QuickFact label="Turnover" value={formatCompactCurrency(turnoverValue)} />
                             ) : null}
@@ -201,9 +207,30 @@ function TabPill({ label, isActive }: { label: string, isActive: boolean }) {
     );
 }
 
-function QuickFact({ label, value }: { label: string; value: string }) {
+function QuickFact({
+    label,
+    value,
+    onClick,
+}: {
+    label: string;
+    value: string;
+    onClick?: () => void;
+}) {
+    const classes = onClick
+        ? "rounded-2xl bg-white/80 px-4 py-3 text-left shadow-[0_2px_10px_rgba(0,0,0,0.03)] transition-colors hover:bg-white"
+        : "rounded-2xl bg-white/80 px-4 py-3 shadow-[0_2px_10px_rgba(0,0,0,0.03)]";
+
+    if (onClick) {
+        return (
+            <button type="button" onClick={onClick} className={classes}>
+                <div className="text-[11px] font-bold uppercase tracking-wider text-[#a0a0a0]">{label}</div>
+                <div className="mt-1 text-sm font-semibold text-[#1c1c1c]">{value}</div>
+            </button>
+        );
+    }
+
     return (
-        <div className="rounded-2xl bg-white/80 px-4 py-3 shadow-[0_2px_10px_rgba(0,0,0,0.03)]">
+        <div className={classes}>
             <div className="text-[11px] font-bold uppercase tracking-wider text-[#a0a0a0]">{label}</div>
             <div className="mt-1 text-sm font-semibold text-[#1c1c1c]">{value}</div>
         </div>

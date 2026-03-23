@@ -90,6 +90,52 @@ class V1FinancialSeriesResponse(BaseModel):
     points: list[V1FinancialSeriesPoint] = Field(default_factory=list)
 
 
+class V1CompanyFilingItem(BaseModel):
+    document_id: int
+    company_number: str
+    source_path: str
+    doc_type: str
+    parsed_at: datetime
+    period_start: date | None = None
+    period_end: date | None = None
+    period_instant: date | None = None
+    current_period_date: date | None = None
+
+
+class V1CompanyFilingHistoryResponse(BaseModel):
+    company_number: str
+    items: list[V1CompanyFilingItem] = Field(default_factory=list)
+
+
+class V1CompanyFilingMetricValue(BaseModel):
+    metric_key: str
+    value: Decimal
+    period_date: date | None = None
+    source_count: int = 0
+    priority: int = 0
+
+
+class V1CompanyFilingSnapshotResponse(BaseModel):
+    company_number: str
+    filing: V1CompanyFilingItem
+    metrics: list[V1CompanyFilingMetricValue] = Field(default_factory=list)
+
+
+class V1CompanyFilingCompareMetric(BaseModel):
+    metric_key: str
+    left_value: Decimal | None = None
+    right_value: Decimal | None = None
+    delta: Decimal | None = None
+    delta_pct: float | None = None
+
+
+class V1CompanyFilingCompareResponse(BaseModel):
+    company_number: str
+    left_filing: V1CompanyFilingItem
+    right_filing: V1CompanyFilingItem
+    metrics: list[V1CompanyFilingCompareMetric] = Field(default_factory=list)
+
+
 class V1FinancialMetricDefinition(BaseModel):
     metric_key: str
     tags: list[str] = Field(default_factory=list)

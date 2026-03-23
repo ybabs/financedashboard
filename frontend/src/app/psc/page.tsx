@@ -14,6 +14,7 @@ import {
   formatPartialDateOfBirth,
   formatPscKind,
   getPscStatusLabel,
+  isPscCeased,
 } from "@/lib/psc";
 
 type LoadState = {
@@ -208,7 +209,7 @@ export default function PscPage() {
                             Seed
                           </span>
                         ) : null}
-                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${item.psc.ceased ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700"}`}>
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${isPscCeased(item.psc) ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-700"}`}>
                           {getPscStatusLabel(item.psc)}
                         </span>
                       </div>

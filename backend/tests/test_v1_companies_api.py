@@ -69,6 +69,136 @@ async def test_v1_company_overview_ok(client, monkeypatch, make_auth_headers):
 
 
 @pytest.mark.anyio
+async def test_v1_company_filings_ok(client, monkeypatch, make_auth_headers):
+    class FakeFinancialsRepo:
+        def __init__(self, session):
+            self.session = session
+
+        async def list_company_filings(self, company_number: str):
+            return [
+                SimpleNamespace(
+                    document_id=3394,
+                    company_number=company_number,
+                    source_path="Prod223_4173_08875186_20260228.html",
+                    doc_type="IXBRL",
+                    parsed_at=datetime(2026, 3, 11, 21, 55, 14, tzinfo=timezone.utc),
+                    period_start=date(2024, 2, 29),
+                    period_end=date(2026, 2, 28),
+                    period_instant=date(2026, 2, 28),
+                    current_period_date=date(2026, 2, 28),
+                )
+            ]
+
+    monkeypatch.setattr(v1_companies_router, "FinancialsRepository", FakeFinancialsRepo)
+    res = await client.get("/v1/companies/08875186/filings", headers=make_auth_headers())
+    assert res.status_code == 200
+    body = res.json()
+    assert body["company_number"] == "08875186"
+    assert body["items"][0]["document_id"] == 3394
+    assert body["items"][0]["current_period_date"] == "2026-02-28"
+
+
+@pytest.mark.anyio
+async def test_v1_company_filing_snapshot_ok(client, monkeypatch, make_auth_headers):
+    class FakeFinancialsRepo:
+        def __init__(self, session):
+            self.session = session
+
+        async def get_company_filing_snapshot(self, company_number: str, document_id: int):
+            return {
+                "filing": SimpleNamespace(
+                    document_id=document_id,
+                    company_number=company_number,
+                    source_path="Prod223_4173_08875186_20260228.html",
+                    doc_type="IXBRL",
+                    parsed_at=datetime(2026, 3, 11, 21, 55, 14, tzinfo=timezone.utc),
+                    period_start=date(2024, 2, 29),
+                    period_end=date(2026, 2, 28),
+                    period_instant=date(2026, 2, 28),
+                    current_period_date=date(2026, 2, 28),
+                ),
+                "metrics": [
+                    SimpleNamespace(
+                        metric_key="turnover",
+                        value=Decimal("957692"),
+                        period_date=date(2026, 2, 28),
+                        source_count=1,
+                        priority=10,
+                    ),
+                    SimpleNamespace(
+                        metric_key="net_assets",
+                        value=Decimal("6153208"),
+                        period_date=date(2026, 2, 28),
+                        source_count=1,
+                        priority=10,
+                    ),
+                ],
+            }
+
+    monkeypatch.setattr(v1_companies_router, "FinancialsRepository", FakeFinancialsRepo)
+    res = await client.get("/v1/companies/08875186/filings/3394/snapshot", headers=make_auth_headers())
+    assert res.status_code == 200
+    body = res.json()
+    assert body["filing"]["document_id"] == 3394
+    assert body["metrics"][0]["metric_key"] == "turnover"
+    assert body["metrics"][0]["value"] == "957692"
+
+
+@pytest.mark.anyio
+async def test_v1_company_filing_compare_ok(client, monkeypatch, make_auth_headers):
+    class FakeFinancialsRepo:
+        def __init__(self, session):
+            self.session = session
+
+        async def compare_company_filings(self, company_number: str, left_document_id: int, right_document_id: int):
+            return {
+                "left_filing": SimpleNamespace(
+                    document_id=left_document_id,
+                    company_number=company_number,
+                    source_path="Prod223_4173_08875186_20260228.html",
+                    doc_type="IXBRL",
+                    parsed_at=datetime(2026, 3, 11, 21, 55, 14, tzinfo=timezone.utc),
+                    period_start=date(2024, 2, 29),
+                    period_end=date(2026, 2, 28),
+                    period_instant=date(2026, 2, 28),
+                    current_period_date=date(2026, 2, 28),
+                ),
+                "right_filing": SimpleNamespace(
+                    document_id=right_document_id,
+                    company_number=company_number,
+                    source_path="Prod223_4173_08875186_20250228.html",
+                    doc_type="IXBRL",
+                    parsed_at=datetime(2026, 3, 11, 21, 55, 14, tzinfo=timezone.utc),
+                    period_start=date(2023, 2, 22),
+                    period_end=date(2025, 2, 28),
+                    period_instant=date(2025, 2, 28),
+                    current_period_date=date(2025, 2, 28),
+                ),
+                "metrics": [
+                    {
+                        "metric_key": "turnover",
+                        "left_value": Decimal("957692"),
+                        "right_value": Decimal("900000"),
+                        "delta": Decimal("57692"),
+                        "delta_pct": 0.0641025641,
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(v1_companies_router, "FinancialsRepository", FakeFinancialsRepo)
+    res = await client.get(
+        "/v1/companies/08875186/filings/compare",
+        params={"left_document_id": 3394, "right_document_id": 3392},
+        headers=make_auth_headers(),
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["left_filing"]["document_id"] == 3394
+    assert body["right_filing"]["document_id"] == 3392
+    assert body["metrics"][0]["metric_key"] == "turnover"
+
+
+@pytest.mark.anyio
 async def test_v1_financial_series_rejects_unknown_metric(client, monkeypatch, make_auth_headers):
     class FakeFinancialsRepo:
         def __init__(self, session):

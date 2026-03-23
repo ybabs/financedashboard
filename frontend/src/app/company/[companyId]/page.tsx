@@ -76,6 +76,8 @@ const profitabilityCharts: MetricConfig[] = [
 
 const balanceSheetCharts: MetricConfig[] = [
     { key: "net_assets", title: "Net Assets", lineColor: "#2f5f9f", description: "Equity value over time" },
+    { key: "current_assets", title: "Current Assets", lineColor: "#376aa9", description: "Short-term assets across filings" },
+    { key: "creditors", title: "Current Liabilities", lineColor: "#4e82bf", description: "Amounts due within one year over time" },
     { key: "fixed_assets", title: "Fixed Assets", lineColor: "#4275b7", description: "Long-term asset base" },
     { key: "cash", title: "Cash Position", lineColor: "#5a91d0", description: "Cash at bank and in hand" },
     { key: "net_current_assets", title: "Net Current Assets", lineColor: "#84b7eb", description: "Working capital after current liabilities" },
@@ -158,19 +160,30 @@ export default function CompanyDashboardPage() {
                     ...headlineCards.map((item) => item.key),
                     ...workingCapitalCards.map((item) => item.key),
                 ])).filter((metricKey) => supported.has(metricKey));
-                const requests = requestedMetrics.map(async (metricKey) => [
-                    metricKey,
-                    await getFinancialSeries(companyId, metricKey),
-                ] as const);
-                const results = await Promise.all(requests);
+                const results = await Promise.allSettled(
+                    requestedMetrics.map(async (metricKey) => [
+                        metricKey,
+                        await getFinancialSeries(companyId, metricKey),
+                    ] as const),
+                );
                 if (!isActive) {
                     return;
                 }
+
+                const successful = results
+                    .filter((result): result is PromiseFulfilledResult<readonly [string, FinancialSeriesResponse]> => result.status === "fulfilled")
+                    .map((result) => result.value);
+                const firstError = results.find((result) => result.status === "rejected");
+
                 setSeriesState({
                     companyId,
                     supportedMetrics: requestedMetrics,
-                    seriesMap: Object.fromEntries(results),
-                    error: null,
+                    seriesMap: Object.fromEntries(successful),
+                    error: successful.length === 0
+                        ? firstError?.reason instanceof Error
+                            ? firstError.reason.message
+                            : "Failed to load financial series"
+                        : null,
                     loaded: true,
                 });
             })
@@ -307,6 +320,10 @@ export default function CompanyDashboardPage() {
         router.push(`/company/${encodeURIComponent(companyId)}/psc`);
     };
 
+    const openFilingHistoryPage = () => {
+        router.push(`/company/${encodeURIComponent(companyId)}/filings`);
+    };
+
     return (
         <div className="flex h-full w-full flex-col space-y-6 pb-6">
             <PscDetailDrawer
@@ -321,6 +338,25 @@ export default function CompanyDashboardPage() {
                     Financial facts currently loaded for this company only run to {formatDate(latestVisibleFinancialFactDate)}, while the company profile shows accounts made up to {formatDate(accountsMadeUpTo)}.
                 </div>
             ) : null}
+
+            <section className="rounded-2xl border border-[#dbe6f4] bg-white px-5 py-4 shadow-[0_4px_24px_rgba(0,0,0,0.02)]">
+                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div>
+                        <div className="text-sm font-semibold text-[#1c1c1c]">Filing History</div>
+                        <div className="mt-1 text-sm text-[#6b7280]">
+                            Open ingested filings, inspect one filing&apos;s snapshot, and compare it against another period.
+                        </div>
+                    </div>
+                    <button
+                        type="button"
+                        onClick={openFilingHistoryPage}
+                        className="inline-flex items-center gap-2 rounded-full border border-[#d8e0ea] bg-white px-4 py-2 text-sm font-medium text-[#1c1c1c] transition-colors hover:border-[#b8c7d9] hover:bg-[#f8fafc]"
+                    >
+                        <ArrowUpRight className="h-4 w-4" />
+                        Open filing history
+                    </button>
+                </div>
+            </section>
 
             {visibleSummaryCards.length > 0 ? (
                 <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
@@ -433,12 +469,14 @@ export default function CompanyDashboardPage() {
                                     ? `Updated ${formatDate(card.series[card.series.length - 1].period_date)}`
                                     : card.description}
                             >
-                                <ChartPanel
-                                    color={card.lineColor}
-                                    data={card.series}
-                                    loading={seriesLoading}
-                                    error={seriesError}
-                                />
+                                <div className="h-[220px] min-h-[220px]">
+                                    <ChartPanel
+                                        color={card.lineColor}
+                                        data={card.series}
+                                        loading={seriesLoading}
+                                        error={seriesError}
+                                    />
+                                </div>
                             </BentoCard>
                         ))}
                     </div>

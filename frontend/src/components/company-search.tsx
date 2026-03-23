@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useDeferredValue, useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, MagnifyingGlass } from "@phosphor-icons/react/dist/ssr";
 
@@ -40,46 +40,52 @@ export function CompanySearch({
     error: null,
   });
   const [isOpen, setIsOpen] = useState(false);
-  const deferredQuery = useDeferredValue(query);
   const requestIdRef = useRef(0);
 
   useEffect(() => {
-    const normalized = deferredQuery.trim();
+    const normalized = query.trim();
     if (normalized.length < 2) {
       requestIdRef.current += 1;
       return;
     }
 
     const requestId = ++requestIdRef.current;
-
-    searchEntities(normalized)
-      .then((payload) => {
-        if (requestId !== requestIdRef.current) {
-          return;
-        }
-        setSearchState({
-          query: normalized,
-          companies: payload.companies ?? [],
-          psc: payload.psc ?? [],
-          error: null,
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => {
+      searchEntities(normalized, 6, { signal: controller.signal })
+        .then((payload) => {
+          if (requestId !== requestIdRef.current) {
+            return;
+          }
+          setSearchState({
+            query: normalized,
+            companies: payload.companies ?? [],
+            psc: payload.psc ?? [],
+            error: null,
+          });
+          setIsOpen(true);
+        })
+        .catch((fetchError) => {
+          if (controller.signal.aborted || requestId !== requestIdRef.current) {
+            return;
+          }
+          setSearchState({
+            query: normalized,
+            companies: [],
+            psc: [],
+            error: fetchError instanceof Error ? fetchError.message : "Search failed",
+          });
+          setIsOpen(true);
         });
-        setIsOpen(true);
-      })
-      .catch((fetchError) => {
-        if (requestId !== requestIdRef.current) {
-          return;
-        }
-        setSearchState({
-          query: normalized,
-          companies: [],
-          psc: [],
-          error: fetchError instanceof Error ? fetchError.message : "Search failed",
-        });
-        setIsOpen(true);
-      });
-  }, [deferredQuery]);
+    }, 120);
 
-  const normalizedQuery = deferredQuery.trim();
+    return () => {
+      controller.abort();
+      window.clearTimeout(timeoutId);
+    };
+  }, [query]);
+
+  const normalizedQuery = query.trim();
   const companyResults = normalizedQuery.length >= 2 && searchState.query === normalizedQuery
     ? searchState.companies
     : [];
