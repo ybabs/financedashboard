@@ -1,6 +1,7 @@
 "use client";
 
 import { use } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Icon } from "@phosphor-icons/react";
 import { Plus_Jakarta_Sans } from "next/font/google";
@@ -12,6 +13,7 @@ import {
     FileText,
     Gear,
     Export,
+    ArrowUpRight,
     DotsThreeCircle
 } from "@phosphor-icons/react/dist/ssr";
 
@@ -45,7 +47,7 @@ function CompanyLayoutInner({
     children: React.ReactNode;
     jakartaClassName: string;
 }) {
-    const { companyId, detail, overview, isLoading, error } = useCompanyData();
+    const { companyId, detail, overview, officersSourceFiling, isLoading, error } = useCompanyData();
     const router = useRouter();
     const displayName = detail?.name ?? overview?.name ?? companyId;
     const statusLabel = detail?.status ?? overview?.status ?? "unknown";
@@ -53,6 +55,19 @@ function CompanyLayoutInner({
     const avatarText = initialsFromName(displayName);
     const turnoverValue = overview?.turnover ?? detail?.turnover;
     const employeesValue = overview?.employees ?? detail?.employees;
+    const financialRecency = overview?.financial_recency ?? detail?.financial_recency ?? null;
+    const latestReportedFilingDate =
+        officersSourceFiling?.current_period_date ??
+        officersSourceFiling?.period_instant ??
+        officersSourceFiling?.period_end ??
+        null;
+    const companiesHouseUrl = getCompaniesHouseCompanyUrl(companyId);
+    const displayAccountsDate =
+        financialRecency?.effective_accounts_made_up_to ??
+        pickLatestIsoDate(
+            detail?.last_accounts_made_up_to ?? overview?.last_accounts_made_up_to ?? null,
+            latestReportedFilingDate,
+        );
 
     return (
         <div className={`${jakartaClassName} flex h-screen bg-[#f4f6f8] text-[#1c1c1c] overflow-hidden w-full antialiased`}>
@@ -74,8 +89,8 @@ function CompanyLayoutInner({
                 {/* MAIN NAV */}
                 <nav className="flex-1 overflow-y-auto px-4 space-y-1.5 pb-4">
                     <SidebarItem icon={ChartLineUp} label="Terminal" active />
-                    <SidebarItem icon={Scales} label="Compare Entities" />
-                    <SidebarItem icon={Buildings} label="Portfolios" />
+                    <SidebarItem icon={Scales} label="Compare Entities" href="/compare" />
+                    <SidebarItem icon={Buildings} label="Portfolios" href="/portfolios" />
                     <SidebarItem icon={FileText} label="Reports" />
                 </nav>
 
@@ -99,10 +114,32 @@ function CompanyLayoutInner({
                     />
 
                     <div className="flex items-center space-x-4">
+                        <Link
+                            href={{
+                                pathname: "/portfolios",
+                                query: {
+                                    company: companyId,
+                                    name: displayName,
+                                },
+                            }}
+                            className="flex items-center px-4 py-2 bg-white rounded-full shadow-[0_2px_10px_rgba(0,0,0,0.03)] text-sm font-semibold text-[#666666] hover:text-[#1c1c1c] transition-colors"
+                        >
+                            <Buildings weight="bold" className="w-4 h-4 mr-2 text-[#8c8c8c]" />
+                            Add to portfolio
+                        </Link>
                         <button className="flex items-center px-4 py-2 bg-white rounded-full shadow-[0_2px_10px_rgba(0,0,0,0.03)] text-sm font-semibold text-[#666666] hover:text-[#1c1c1c] transition-colors">
                             <Export weight="bold" className="w-4 h-4 mr-2 text-[#8c8c8c]" />
                             Export Data
                         </button>
+                        <a
+                            href={companiesHouseUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center px-4 py-2 bg-white rounded-full shadow-[0_2px_10px_rgba(0,0,0,0.03)] text-sm font-semibold text-[#666666] hover:text-[#1c1c1c] transition-colors"
+                        >
+                            <ArrowUpRight weight="bold" className="w-4 h-4 mr-2 text-[#8c8c8c]" />
+                            Companies House
+                        </a>
                         <div className="w-10 h-10 bg-[#dfedfa] text-[#2f539e] rounded-full flex items-center justify-center font-bold text-sm shadow-sm border border-[#c6e0f7]">
                             JD
                         </div>
@@ -148,7 +185,7 @@ function CompanyLayoutInner({
                         <div className="flex items-center gap-3">
                             <QuickFact
                                 label="Accounts"
-                                value={detail?.last_accounts_made_up_to ? formatDate(detail.last_accounts_made_up_to) : "—"}
+                                value={displayAccountsDate ? formatDate(displayAccountsDate) : "—"}
                                 onClick={() => router.push(`/company/${encodeURIComponent(companyId)}/filings`)}
                             />
                             {hasValue(turnoverValue) ? (
@@ -181,16 +218,40 @@ function CompanyLayoutInner({
 
 // --- SUB-COMPONENTS ---
 
-function SidebarItem({ icon: Icon, label, active = false }: { icon: Icon; label: string; active?: boolean }) {
-    return (
-        <a href="#"
-            className={`flex items-center px-4 py-2.5 rounded-xl text-[14px] transition-all duration-200 ${active
-                    ? "bg-[#f4f6f8] text-[#1c1c1c] font-bold"
-                    : "text-[#666666] hover:text-[#1c1c1c] hover:bg-[#fafafa] font-semibold"
-                }`}
-        >
+function SidebarItem({
+    icon: Icon,
+    label,
+    active = false,
+    href,
+}: {
+    icon: Icon;
+    label: string;
+    active?: boolean;
+    href?: string;
+}) {
+    const classes = `flex items-center px-4 py-2.5 rounded-xl text-[14px] transition-all duration-200 ${active
+        ? "bg-[#f4f6f8] text-[#1c1c1c] font-bold"
+        : "text-[#666666] hover:text-[#1c1c1c] hover:bg-[#fafafa] font-semibold"
+        }`;
+
+    const content = (
+        <>
             <Icon weight={active ? "duotone" : "regular"} className={`w-5 h-5 mr-3 ${active ? "text-[#5193e0]" : "text-[#a0a0a0]"}`} />
             {label}
+        </>
+    );
+
+    if (href) {
+        return (
+            <Link href={href} className={classes}>
+                {content}
+            </Link>
+        );
+    }
+
+    return (
+        <a href="#" className={classes}>
+            {content}
         </a>
     );
 }
@@ -239,6 +300,20 @@ function QuickFact({
 
 function hasValue(value: string | number | null | undefined): boolean {
     return value !== null && value !== undefined && value !== "";
+}
+
+function pickLatestIsoDate(left: string | null, right: string | null): string | null {
+    if (!left) {
+        return right;
+    }
+    if (!right) {
+        return left;
+    }
+    return right > left ? right : left;
+}
+
+function getCompaniesHouseCompanyUrl(companyNumber: string): string {
+    return `https://find-and-update.company-information.service.gov.uk/company/${encodeURIComponent(companyNumber)}`;
 }
 
 // --- CUSTOM SVG LOGO ---

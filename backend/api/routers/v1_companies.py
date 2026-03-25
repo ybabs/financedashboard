@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,11 +15,20 @@ from schemas.v1 import (
     V1CompanyCompareResponse,
     V1CompanyCompareSide,
     V1CompanyDetailResponse,
+    V1CompanyFinancialRecency,
     V1CompanyFilingCompareMetric,
     V1CompanyFilingCompareResponse,
+    V1CompanyFilingDisclosureItem,
+    V1CompanyFilingDisclosureResponse,
     V1CompanyFilingHistoryResponse,
     V1CompanyFilingItem,
+    V1CompanyMetricDetailResponse,
+    V1CompanyMetricFilingValue,
+    V1CompanyMetricProvenanceFact,
+    V1CompanyMetricSeriesPoint,
     V1CompanyFilingMetricValue,
+    V1CompanyOfficerItem,
+    V1CompanyOfficerListResponse,
     V1CompanyFilingSnapshotResponse,
     V1CompanyOverviewResponse,
     V1CompanySearchItem,
@@ -43,6 +53,24 @@ def _psc_display_name(name: str | None) -> str:
 
 def _psc_has_ceased(item) -> bool | None:
     return bool(getattr(item, "ceased", None)) or bool(getattr(item, "ceased_on", None))
+
+
+def _serialize_financial_recency(item) -> V1CompanyFinancialRecency | None:
+    if item is None:
+        return None
+    if isinstance(item, SimpleNamespace):
+        return V1CompanyFinancialRecency(**vars(item))
+    try:
+        return V1CompanyFinancialRecency(**asdict(item))
+    except TypeError:
+        return V1CompanyFinancialRecency(
+            company_accounts_made_up_to=getattr(item, "company_accounts_made_up_to", None),
+            latest_metric_period_date=getattr(item, "latest_metric_period_date", None),
+            latest_filing_period_date=getattr(item, "latest_filing_period_date", None),
+            latest_filing_backed_period_date=getattr(item, "latest_filing_backed_period_date", None),
+            effective_accounts_made_up_to=getattr(item, "effective_accounts_made_up_to", None),
+            source=getattr(item, "source", "unknown"),
+        )
 
 
 @router.get("/search", response_model=V1CompanySearchResponse)
@@ -98,6 +126,10 @@ async def get_company(
     company = await repo.get_company(company_number.strip().upper())
     if company is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
+    financial_recency = await repo.get_financial_recency(
+        company.company_number,
+        company.last_accounts_made_up_to,
+    )
     return V1CompanyDetailResponse(
         company_number=company.company_number,
         name=company.name,
@@ -112,6 +144,7 @@ async def get_company(
         current_assets=company.current_assets,
         creditors=company.creditors,
         cash=company.cash,
+        financial_recency=_serialize_financial_recency(financial_recency),
     )
 
 
@@ -141,6 +174,7 @@ async def get_company_overview(
         psc_count=payload["psc_count"],
         current_ratio=payload["current_ratio"],
         updated_at=company.updated_at,
+        financial_recency=_serialize_financial_recency(payload.get("financial_recency")),
     )
 
 
@@ -166,6 +200,50 @@ async def get_company_filings(
                 current_period_date=item.current_period_date,
             )
             for item in items
+        ],
+    )
+
+
+@router.get("/{company_number}/officers", response_model=V1CompanyOfficerListResponse)
+async def get_company_officers(
+    company_number: str,
+    limit: int = Query(20, ge=1, le=100),
+    session: AsyncSession = Depends(get_session),
+):
+    financials_repo = FinancialsRepository(session)
+    payload = await financials_repo.get_company_reported_officers(
+        company_number=company_number.strip().upper(),
+        limit=limit,
+    )
+    filing = payload["filing"]
+    return V1CompanyOfficerListResponse(
+        company_number=company_number.strip().upper(),
+        source_filing=(
+            V1CompanyFilingItem(
+                document_id=filing.document_id,
+                company_number=filing.company_number,
+                source_path=filing.source_path,
+                doc_type=filing.doc_type,
+                parsed_at=filing.parsed_at,
+                period_start=filing.period_start,
+                period_end=filing.period_end,
+                period_instant=filing.period_instant,
+                current_period_date=filing.current_period_date,
+            )
+            if filing is not None
+            else None
+        ),
+        items=[
+            V1CompanyOfficerItem(
+                officer_key=item.officer_key,
+                name=item.name,
+                role=item.role,
+                source_kind=item.source_kind,
+                source_document_id=item.source_document_id,
+                source_path=item.source_path,
+                reported_period_date=item.reported_period_date,
+            )
+            for item in payload["items"]
         ],
     )
 
@@ -262,6 +340,52 @@ async def get_company_filing_snapshot(
     )
 
 
+@router.get("/{company_number}/filings/{document_id}/disclosures", response_model=V1CompanyFilingDisclosureResponse)
+async def get_company_filing_disclosures(
+    company_number: str,
+    document_id: int,
+    session: AsyncSession = Depends(get_session),
+):
+    financials_repo = FinancialsRepository(session)
+    payload = await financials_repo.get_company_filing_disclosures(
+        company_number=company_number.strip().upper(),
+        document_id=document_id,
+    )
+    if payload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Filing not found")
+    filing = payload["filing"]
+    return V1CompanyFilingDisclosureResponse(
+        company_number=company_number.strip().upper(),
+        filing=V1CompanyFilingItem(
+            document_id=filing.document_id,
+            company_number=filing.company_number,
+            source_path=filing.source_path,
+            doc_type=filing.doc_type,
+            parsed_at=filing.parsed_at,
+            period_start=filing.period_start,
+            period_end=filing.period_end,
+            period_instant=filing.period_instant,
+            current_period_date=filing.current_period_date,
+        ),
+        items=[
+            V1CompanyFilingDisclosureItem(
+                fact_id=item.fact_id,
+                section=item.section,
+                label=item.label,
+                raw_tag=item.raw_tag,
+                normalized_tag=item.normalized_tag,
+                period_date=item.period_date,
+                value_text=item.value_text,
+                numeric_value=item.numeric_value,
+                dimensions=item.dimensions,
+                linked_metric_keys=item.linked_metric_keys,
+                is_narrative=item.is_narrative,
+            )
+            for item in payload["items"]
+        ],
+    )
+
+
 @router.get("/{company_number}/financials/series", response_model=V1FinancialSeriesResponse)
 async def get_financial_series(
     company_number: str,
@@ -285,6 +409,95 @@ async def get_financial_series(
         company_number=company_number.strip().upper(),
         metric=metric_key,
         points=[V1FinancialSeriesPoint(period_date=p["period_date"], value=p["value"]) for p in points],
+    )
+
+
+@router.get("/{company_number}/financials/metric", response_model=V1CompanyMetricDetailResponse)
+async def get_financial_metric_detail(
+    company_number: str,
+    metric: str = Query(..., description="Canonical metric key"),
+    session: AsyncSession = Depends(get_session),
+):
+    metric_key = metric.strip().lower()
+    financials_repo = FinancialsRepository(session)
+    supported_metrics = await financials_repo.list_metric_keys()
+    allowed_metrics = sorted(set(supported_metrics) | {"current_ratio"})
+    if metric_key not in allowed_metrics:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unsupported metric. Allowed: {', '.join(allowed_metrics)}",
+        )
+
+    payload = await financials_repo.get_company_metric_detail(
+        company_number=company_number.strip().upper(),
+        metric_key=metric_key,
+    )
+    latest_filing = payload["latest_filing"]
+
+    return V1CompanyMetricDetailResponse(
+        company_number=company_number.strip().upper(),
+        metric_key=payload["metric_key"],
+        tags=payload["tags"],
+        derived_from=payload["derived_from"],
+        latest_value=payload["latest_value"],
+        latest_period_date=payload["latest_period_date"],
+        latest_filing=(
+            V1CompanyFilingItem(
+                document_id=latest_filing.document_id,
+                company_number=latest_filing.company_number,
+                source_path=latest_filing.source_path,
+                doc_type=latest_filing.doc_type,
+                parsed_at=latest_filing.parsed_at,
+                period_start=latest_filing.period_start,
+                period_end=latest_filing.period_end,
+                period_instant=latest_filing.period_instant,
+                current_period_date=latest_filing.current_period_date,
+            )
+            if latest_filing is not None
+            else None
+        ),
+        series=[
+            V1CompanyMetricSeriesPoint(
+                period_date=item.period_date,
+                value=item.value,
+                source_count=item.source_count,
+                priority=item.priority,
+            )
+            for item in payload["series"]
+        ],
+        filings=[
+            V1CompanyMetricFilingValue(
+                filing=V1CompanyFilingItem(
+                    document_id=item.filing.document_id,
+                    company_number=item.filing.company_number,
+                    source_path=item.filing.source_path,
+                    doc_type=item.filing.doc_type,
+                    parsed_at=item.filing.parsed_at,
+                    period_start=item.filing.period_start,
+                    period_end=item.filing.period_end,
+                    period_instant=item.filing.period_instant,
+                    current_period_date=item.filing.current_period_date,
+                ),
+                value=item.value,
+                period_date=item.period_date,
+                source_count=item.source_count,
+                priority=item.priority,
+            )
+            for item in payload["filings"]
+        ],
+        provenance_facts=[
+            V1CompanyMetricProvenanceFact(
+                document_id=item.document_id,
+                source_path=item.source_path,
+                period_date=item.period_date,
+                raw_tag=item.raw_tag,
+                normalized_tag=item.normalized_tag,
+                value=item.value,
+                has_dimensions=item.has_dimensions,
+                context_ref=item.context_ref,
+            )
+            for item in payload["provenance_facts"]
+        ],
     )
 
 

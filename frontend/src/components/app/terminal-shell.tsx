@@ -70,6 +70,7 @@ export function TerminalShell({
   const searchBoxRef = useRef<HTMLDivElement | null>(null);
 
   const isCompare = pathname.startsWith("/compare");
+  const isPortfolios = pathname.startsWith("/portfolios");
   const activeCompanyNumber = pathname.startsWith("/company/") ? pathname.split("/")[2]?.toUpperCase() : null;
 
   const shellTabs = useMemo(() => {
@@ -193,9 +194,9 @@ export function TerminalShell({
           </span>
         </div>
         <nav className="flex-1 space-y-1.5 overflow-y-auto px-4 pb-4">
-          <SidebarItem icon={ChartLineUp} label="Terminal" href={terminalHref} active={!isCompare} />
+          <SidebarItem icon={ChartLineUp} label="Terminal" href={terminalHref} active={!isCompare && !isPortfolios} />
           <SidebarItem icon={Scales} label="Compare Entities" href="/compare" active={isCompare} />
-          <SidebarItem icon={Buildings} label="Portfolios" />
+          <SidebarItem icon={Buildings} label="Portfolios" href="/portfolios" active={isPortfolios} />
           <SidebarItem icon={FileText} label="Reports" />
         </nav>
         <div className="border-t border-[var(--cb-stroke-soft)] p-4">

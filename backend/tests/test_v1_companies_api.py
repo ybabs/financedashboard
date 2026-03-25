@@ -57,7 +57,19 @@ async def test_v1_company_overview_ok(client, monkeypatch, make_auth_headers):
                 cash=Decimal("150"),
                 updated_at=datetime(2026, 2, 25, tzinfo=timezone.utc),
             )
-            return {"company": company, "psc_count": 3, "current_ratio": 3.0}
+            return {
+                "company": company,
+                "psc_count": 3,
+                "current_ratio": 3.0,
+                "financial_recency": SimpleNamespace(
+                    company_accounts_made_up_to=date(2025, 12, 31),
+                    latest_metric_period_date=date(2026, 1, 31),
+                    latest_filing_period_date=date(2026, 1, 31),
+                    latest_filing_backed_period_date=date(2026, 1, 31),
+                    effective_accounts_made_up_to=date(2026, 1, 31),
+                    source="filing_backed",
+                ),
+            }
 
     monkeypatch.setattr(v1_companies_router, "CompaniesRepository", FakeRepo)
     res = await client.get("/v1/companies/09092149/overview", headers=make_auth_headers())
@@ -66,6 +78,51 @@ async def test_v1_company_overview_ok(client, monkeypatch, make_auth_headers):
     assert body["company_number"] == "09092149"
     assert body["psc_count"] == 3
     assert body["current_ratio"] == 3.0
+    assert body["financial_recency"]["effective_accounts_made_up_to"] == "2026-01-31"
+    assert body["financial_recency"]["source"] == "filing_backed"
+
+
+@pytest.mark.anyio
+async def test_v1_company_detail_includes_financial_recency(client, monkeypatch, make_auth_headers):
+    class FakeRepo:
+        def __init__(self, session):
+            self.session = session
+
+        async def get_company(self, company_number: str):
+            return SimpleNamespace(
+                company_number=company_number,
+                name="Example Co",
+                status="active",
+                incorporation_date=date(2014, 2, 1),
+                account_type="small",
+                last_accounts_made_up_to=date(2018, 2, 28),
+                region="kent",
+                turnover=None,
+                employees=1,
+                net_assets=None,
+                current_assets=None,
+                creditors=None,
+                cash=None,
+            )
+
+        async def get_financial_recency(self, company_number: str, company_accounts_made_up_to: date | None):
+            return SimpleNamespace(
+                company_accounts_made_up_to=company_accounts_made_up_to,
+                latest_metric_period_date=date(2026, 2, 28),
+                latest_filing_period_date=date(2026, 2, 28),
+                latest_filing_backed_period_date=date(2026, 2, 28),
+                effective_accounts_made_up_to=date(2026, 2, 28),
+                source="filing_backed",
+            )
+
+    monkeypatch.setattr(v1_companies_router, "CompaniesRepository", FakeRepo)
+    res = await client.get("/v1/companies/08875186", headers=make_auth_headers())
+    assert res.status_code == 200
+    body = res.json()
+    assert body["company_number"] == "08875186"
+    assert body["last_accounts_made_up_to"] == "2018-02-28"
+    assert body["financial_recency"]["latest_metric_period_date"] == "2026-02-28"
+    assert body["financial_recency"]["effective_accounts_made_up_to"] == "2026-02-28"
 
 
 @pytest.mark.anyio
@@ -96,6 +153,48 @@ async def test_v1_company_filings_ok(client, monkeypatch, make_auth_headers):
     assert body["company_number"] == "08875186"
     assert body["items"][0]["document_id"] == 3394
     assert body["items"][0]["current_period_date"] == "2026-02-28"
+
+
+@pytest.mark.anyio
+async def test_v1_company_officers_ok(client, monkeypatch, make_auth_headers):
+    class FakeFinancialsRepo:
+        def __init__(self, session):
+            self.session = session
+
+        async def get_company_reported_officers(self, company_number: str, limit: int):
+            return {
+                "filing": SimpleNamespace(
+                    document_id=3394,
+                    company_number=company_number,
+                    source_path="Prod223_4173_08875186_20260228.html",
+                    doc_type="IXBRL",
+                    parsed_at=datetime(2026, 3, 11, 21, 55, 14, tzinfo=timezone.utc),
+                    period_start=date(2024, 2, 29),
+                    period_end=date(2026, 2, 28),
+                    period_instant=date(2026, 2, 28),
+                    current_period_date=date(2026, 2, 28),
+                ),
+                "items": [
+                    SimpleNamespace(
+                        officer_key="latest-filing:3394:john-smith",
+                        name="JOHN SMITH",
+                        role="Director",
+                        source_kind="latest_filing",
+                        source_document_id=3394,
+                        source_path="Prod223_4173_08875186_20260228.html",
+                        reported_period_date=date(2026, 2, 28),
+                    )
+                ],
+            }
+
+    monkeypatch.setattr(v1_companies_router, "FinancialsRepository", FakeFinancialsRepo)
+    res = await client.get("/v1/companies/08875186/officers", headers=make_auth_headers())
+    assert res.status_code == 200
+    body = res.json()
+    assert body["company_number"] == "08875186"
+    assert body["source_filing"]["document_id"] == 3394
+    assert body["items"][0]["officer_key"] == "latest-filing:3394:john-smith"
+    assert body["items"][0]["role"] == "Director"
 
 
 @pytest.mark.anyio
@@ -142,6 +241,67 @@ async def test_v1_company_filing_snapshot_ok(client, monkeypatch, make_auth_head
     assert body["filing"]["document_id"] == 3394
     assert body["metrics"][0]["metric_key"] == "turnover"
     assert body["metrics"][0]["value"] == "957692"
+
+
+@pytest.mark.anyio
+async def test_v1_company_filing_disclosures_ok(client, monkeypatch, make_auth_headers):
+    class FakeFinancialsRepo:
+        def __init__(self, session):
+            self.session = session
+
+        async def get_company_filing_disclosures(self, company_number: str, document_id: int):
+            return {
+                "filing": SimpleNamespace(
+                    document_id=document_id,
+                    company_number=company_number,
+                    source_path="Prod223_4173_08875186_20260228.html",
+                    doc_type="IXBRL",
+                    parsed_at=datetime(2026, 3, 11, 21, 55, 14, tzinfo=timezone.utc),
+                    period_start=date(2025, 3, 1),
+                    period_end=date(2026, 2, 28),
+                    period_instant=date(2026, 2, 28),
+                    current_period_date=date(2026, 2, 28),
+                ),
+                "items": [
+                    SimpleNamespace(
+                        fact_id=1,
+                        section="Director Statements",
+                        label="Statement That Members Have Not Required Company To Obtain An Audit",
+                        raw_tag="uk-direp:StatementThatMembersHaveNotRequiredCompanyToObtainAnAudit",
+                        normalized_tag="statementthatmembershavenotrequiredcompanytoobtainanaudit",
+                        period_date=date(2026, 2, 28),
+                        value_text="The members have not required the company to obtain an audit.",
+                        numeric_value=None,
+                        dimensions=[],
+                        linked_metric_keys=[],
+                        is_narrative=True,
+                    ),
+                    SimpleNamespace(
+                        fact_id=2,
+                        section="Note Balances",
+                        label="Creditors • Within One Year",
+                        raw_tag="uk-core:Creditors",
+                        normalized_tag="creditors",
+                        period_date=date(2026, 2, 28),
+                        value_text="35,300",
+                        numeric_value=Decimal("35300"),
+                        dimensions=["Maturities Or Expiration Periods: Within One Year"],
+                        linked_metric_keys=["creditors"],
+                        is_narrative=False,
+                    ),
+                ],
+            }
+
+    monkeypatch.setattr(v1_companies_router, "FinancialsRepository", FakeFinancialsRepo)
+    res = await client.get("/v1/companies/08875186/filings/3394/disclosures", headers=make_auth_headers())
+    assert res.status_code == 200
+    body = res.json()
+    assert body["filing"]["document_id"] == 3394
+    assert body["items"][0]["section"] == "Director Statements"
+    assert body["items"][0]["normalized_tag"] == "statementthatmembershavenotrequiredcompanytoobtainanaudit"
+    assert body["items"][1]["numeric_value"] == "35300"
+    assert body["items"][1]["linked_metric_keys"] == ["creditors"]
+    assert body["items"][1]["dimensions"] == ["Maturities Or Expiration Periods: Within One Year"]
 
 
 @pytest.mark.anyio
@@ -242,6 +402,97 @@ async def test_v1_financial_series_ok(client, monkeypatch, make_auth_headers):
     body = res.json()
     assert body["metric"] == "net_profit"
     assert len(body["points"]) == 2
+
+
+@pytest.mark.anyio
+async def test_v1_financial_metric_detail_ok(client, monkeypatch, make_auth_headers):
+    class FakeFinancialsRepo:
+        def __init__(self, session):
+            self.session = session
+
+        async def list_metric_keys(self):
+            return ["turnover", "net_assets"]
+
+        async def get_company_metric_detail(self, company_number: str, metric_key: str):
+            return {
+                "company_number": company_number,
+                "metric_key": metric_key,
+                "tags": ["turnoverrevenue"],
+                "derived_from": [],
+                "latest_value": Decimal("957692"),
+                "latest_period_date": date(2026, 2, 28),
+                "latest_filing": SimpleNamespace(
+                    document_id=3394,
+                    company_number=company_number,
+                    source_path="Prod223_4173_08875186_20260228.html",
+                    doc_type="IXBRL",
+                    parsed_at=datetime(2026, 3, 11, 21, 55, 14, tzinfo=timezone.utc),
+                    period_start=date(2024, 2, 29),
+                    period_end=date(2026, 2, 28),
+                    period_instant=date(2026, 2, 28),
+                    current_period_date=date(2026, 2, 28),
+                ),
+                "series": [
+                    SimpleNamespace(
+                        period_date=date(2025, 2, 28),
+                        value=Decimal("900000"),
+                        source_count=1,
+                        priority=10,
+                    ),
+                    SimpleNamespace(
+                        period_date=date(2026, 2, 28),
+                        value=Decimal("957692"),
+                        source_count=1,
+                        priority=10,
+                    ),
+                ],
+                "filings": [
+                    SimpleNamespace(
+                        filing=SimpleNamespace(
+                            document_id=3394,
+                            company_number=company_number,
+                            source_path="Prod223_4173_08875186_20260228.html",
+                            doc_type="IXBRL",
+                            parsed_at=datetime(2026, 3, 11, 21, 55, 14, tzinfo=timezone.utc),
+                            period_start=date(2024, 2, 29),
+                            period_end=date(2026, 2, 28),
+                            period_instant=date(2026, 2, 28),
+                            current_period_date=date(2026, 2, 28),
+                        ),
+                        value=Decimal("957692"),
+                        period_date=date(2026, 2, 28),
+                        source_count=1,
+                        priority=10,
+                    )
+                ],
+                "provenance_facts": [
+                    SimpleNamespace(
+                        document_id=3394,
+                        source_path="Prod223_4173_08875186_20260228.html",
+                        period_date=date(2026, 2, 28),
+                        raw_tag="core:TurnoverRevenue",
+                        normalized_tag="turnoverrevenue",
+                        value=Decimal("957692"),
+                        has_dimensions=False,
+                        context_ref="CurrentYear",
+                    )
+                ],
+            }
+
+    monkeypatch.setattr(v1_companies_router, "FinancialsRepository", FakeFinancialsRepo)
+    res = await client.get(
+        "/v1/companies/08875186/financials/metric",
+        params={"metric": "turnover"},
+        headers=make_auth_headers(),
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["metric_key"] == "turnover"
+    assert body["latest_value"] == "957692"
+    assert body["tags"] == ["turnoverrevenue"]
+    assert body["latest_filing"]["document_id"] == 3394
+    assert body["filings"][0]["filing"]["document_id"] == 3394
+    assert body["provenance_facts"][0]["raw_tag"] == "core:TurnoverRevenue"
 
 
 @pytest.mark.anyio

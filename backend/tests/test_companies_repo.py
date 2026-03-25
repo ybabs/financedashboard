@@ -34,6 +34,10 @@ class _AllResult:
 class _SessionForOverviewFallback:
     async def execute(self, stmt, params=None):
         sql_text = str(stmt)
+        if "SELECT MAX(period_date) AS period_date" in sql_text and "FROM financial_metric_series" in sql_text:
+            return _ScalarResult(date(2026, 2, 28))
+        if "SELECT MAX(period_date) AS period_date" in sql_text and "FROM (" in sql_text and "ixbrl_documents" in sql_text:
+            return _ScalarResult(date(2026, 2, 28))
         if "FROM companies" in sql_text:
             return _ScalarResult(
                 SimpleNamespace(
@@ -81,6 +85,66 @@ async def test_get_overview_falls_back_to_metric_series():
     assert overview["creditors"] == Decimal("343598")
     assert overview["cash"] == Decimal("600348")
     assert overview["current_ratio"] == pytest.approx(839417 / 343598)
+    assert overview["financial_recency"].latest_metric_period_date == date(2026, 2, 28)
+    assert overview["financial_recency"].effective_accounts_made_up_to == date(2026, 2, 28)
+    assert overview["financial_recency"].source == "filing_backed"
+
+
+class _SessionForOverviewPrefersCompanyValues:
+    async def execute(self, stmt, params=None):
+        sql_text = str(stmt)
+        if "SELECT MAX(period_date) AS period_date" in sql_text and "FROM financial_metric_series" in sql_text:
+            return _ScalarResult(date(2025, 7, 31))
+        if "SELECT MAX(period_date) AS period_date" in sql_text and "FROM (" in sql_text and "ixbrl_documents" in sql_text:
+            return _ScalarResult(date(2025, 7, 31))
+        if "FROM companies" in sql_text:
+            return _ScalarResult(
+                SimpleNamespace(
+                    company_number="00000119",
+                    name="Current Co",
+                    status="Active",
+                    region="kent",
+                    account_type="FULL",
+                    incorporation_date=date(1900, 1, 1),
+                    last_accounts_made_up_to=date(2026, 1, 31),
+                    turnover=Decimal("1000"),
+                    employees=4,
+                    net_assets=Decimal("600"),
+                    current_assets=Decimal("700"),
+                    creditors=Decimal("200"),
+                    cash=Decimal("150"),
+                    updated_at=datetime(2026, 3, 16, tzinfo=timezone.utc),
+                )
+            )
+        if "count(" in sql_text and "FROM psc_persons" in sql_text:
+            return _ScalarResult(1)
+        if "financial_metric_series" in sql_text:
+            return _AllResult(
+                [
+                    SimpleNamespace(metric_key="turnover", value=Decimal("900")),
+                    SimpleNamespace(metric_key="net_assets", value=Decimal("550")),
+                    SimpleNamespace(metric_key="current_assets", value=Decimal("650")),
+                    SimpleNamespace(metric_key="creditors", value=Decimal("250")),
+                    SimpleNamespace(metric_key="cash", value=Decimal("140")),
+                ]
+            )
+        raise AssertionError(f"Unexpected SQL executed: {sql_text}")
+
+
+@pytest.mark.anyio
+async def test_get_overview_prefers_company_values_when_company_date_is_newer():
+    repo = CompaniesRepository(_SessionForOverviewPrefersCompanyValues())
+
+    overview = await repo.get_overview("00000119")
+
+    assert overview is not None
+    assert overview["turnover"] == Decimal("1000")
+    assert overview["net_assets"] == Decimal("600")
+    assert overview["current_assets"] == Decimal("700")
+    assert overview["creditors"] == Decimal("200")
+    assert overview["cash"] == Decimal("150")
+    assert overview["financial_recency"].effective_accounts_made_up_to == date(2026, 1, 31)
+    assert overview["financial_recency"].source == "company"
 
 
 class _SessionForPscRelationships:

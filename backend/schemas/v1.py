@@ -46,6 +46,15 @@ class V1GlobalSearchResponse(BaseModel):
     psc: list[V1GlobalPscSearchItem] = Field(default_factory=list)
 
 
+class V1CompanyFinancialRecency(BaseModel):
+    company_accounts_made_up_to: date | None = None
+    latest_metric_period_date: date | None = None
+    latest_filing_period_date: date | None = None
+    latest_filing_backed_period_date: date | None = None
+    effective_accounts_made_up_to: date | None = None
+    source: Literal["company", "filing_backed", "aligned", "unknown"] = "unknown"
+
+
 class V1CompanyDetailResponse(BaseModel):
     company_number: str
     name: str
@@ -60,6 +69,7 @@ class V1CompanyDetailResponse(BaseModel):
     current_assets: Decimal | None = None
     creditors: Decimal | None = None
     cash: Decimal | None = None
+    financial_recency: V1CompanyFinancialRecency | None = None
 
 
 class V1CompanyOverviewResponse(BaseModel):
@@ -77,6 +87,7 @@ class V1CompanyOverviewResponse(BaseModel):
     psc_count: int
     current_ratio: float | None = None
     updated_at: datetime
+    financial_recency: V1CompanyFinancialRecency | None = None
 
 
 class V1FinancialSeriesPoint(BaseModel):
@@ -107,6 +118,22 @@ class V1CompanyFilingHistoryResponse(BaseModel):
     items: list[V1CompanyFilingItem] = Field(default_factory=list)
 
 
+class V1CompanyOfficerItem(BaseModel):
+    officer_key: str
+    name: str
+    role: str | None = None
+    source_kind: Literal["latest_filing"] = "latest_filing"
+    source_document_id: int
+    source_path: str
+    reported_period_date: date | None = None
+
+
+class V1CompanyOfficerListResponse(BaseModel):
+    company_number: str
+    source_filing: V1CompanyFilingItem | None = None
+    items: list[V1CompanyOfficerItem] = Field(default_factory=list)
+
+
 class V1CompanyFilingMetricValue(BaseModel):
     metric_key: str
     value: Decimal
@@ -119,6 +146,26 @@ class V1CompanyFilingSnapshotResponse(BaseModel):
     company_number: str
     filing: V1CompanyFilingItem
     metrics: list[V1CompanyFilingMetricValue] = Field(default_factory=list)
+
+
+class V1CompanyFilingDisclosureItem(BaseModel):
+    fact_id: int
+    section: str
+    label: str
+    raw_tag: str
+    normalized_tag: str
+    period_date: date | None = None
+    value_text: str | None = None
+    numeric_value: Decimal | None = None
+    dimensions: list[str] = Field(default_factory=list)
+    linked_metric_keys: list[str] = Field(default_factory=list)
+    is_narrative: bool = False
+
+
+class V1CompanyFilingDisclosureResponse(BaseModel):
+    company_number: str
+    filing: V1CompanyFilingItem
+    items: list[V1CompanyFilingDisclosureItem] = Field(default_factory=list)
 
 
 class V1CompanyFilingCompareMetric(BaseModel):
@@ -134,6 +181,45 @@ class V1CompanyFilingCompareResponse(BaseModel):
     left_filing: V1CompanyFilingItem
     right_filing: V1CompanyFilingItem
     metrics: list[V1CompanyFilingCompareMetric] = Field(default_factory=list)
+
+
+class V1CompanyMetricSeriesPoint(BaseModel):
+    period_date: date
+    value: Decimal
+    source_count: int = 0
+    priority: int = 0
+
+
+class V1CompanyMetricFilingValue(BaseModel):
+    filing: V1CompanyFilingItem
+    value: Decimal
+    period_date: date | None = None
+    source_count: int = 0
+    priority: int = 0
+
+
+class V1CompanyMetricProvenanceFact(BaseModel):
+    document_id: int
+    source_path: str
+    period_date: date | None = None
+    raw_tag: str
+    normalized_tag: str
+    value: Decimal
+    has_dimensions: bool = False
+    context_ref: str | None = None
+
+
+class V1CompanyMetricDetailResponse(BaseModel):
+    company_number: str
+    metric_key: str
+    tags: list[str] = Field(default_factory=list)
+    derived_from: list[str] = Field(default_factory=list)
+    latest_value: Decimal | None = None
+    latest_period_date: date | None = None
+    latest_filing: V1CompanyFilingItem | None = None
+    series: list[V1CompanyMetricSeriesPoint] = Field(default_factory=list)
+    filings: list[V1CompanyMetricFilingValue] = Field(default_factory=list)
+    provenance_facts: list[V1CompanyMetricProvenanceFact] = Field(default_factory=list)
 
 
 class V1FinancialMetricDefinition(BaseModel):

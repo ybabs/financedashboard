@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { ArrowRight } from "@phosphor-icons/react/dist/ssr";
 
 import {
+  CompanyFilingDisclosureItem,
+  CompanyFilingDisclosureResponse,
   CompanyFilingCompareMetric,
   CompanyFilingCompareResponse,
   CompanyFilingItem,
@@ -11,10 +13,19 @@ import {
   CompanyFilingSnapshotResponse,
   compareCompanyFilings,
   getCompanyFilings,
+  getCompanyFilingDisclosures,
   getCompanyFilingSnapshot,
 } from "@/lib/api";
 import { formatCompactCurrency, formatDate, formatInteger } from "@/lib/format";
+import {
+  formatMetricLabel,
+  getDisclosureFocusArea,
+  getDisclosureFocusDescription,
+  getDisclosureFocusLabel,
+  type DisclosureFocusArea,
+} from "@/lib/financials";
 import { useCompanyData } from "../company-context";
+import { NoteDetailDrawer, type NoteMetricLink } from "../note-detail-drawer";
 
 type FilingMetricFormatter = "currency" | "integer";
 
@@ -29,6 +40,14 @@ type FilingMetricGroup = {
   title: string;
   description: string;
   metrics: string[];
+};
+
+type DisclosureFocusGroup = {
+  area: DisclosureFocusArea;
+  label: string;
+  description: string;
+  items: CompanyFilingDisclosureItem[];
+  linkedMetricLabels: string[];
 };
 
 type FilingHistoryState = {
@@ -53,6 +72,22 @@ type FilingCompareState = {
   payload: CompanyFilingCompareResponse | null;
   error: string | null;
   loaded: boolean;
+};
+
+type FilingDisclosureState = {
+  companyId: string;
+  documentId: number | null;
+  payload: CompanyFilingDisclosureResponse | null;
+  error: string | null;
+  loaded: boolean;
+};
+
+type FilingDisclosureUiState = {
+  companyId: string;
+  documentId: number | null;
+  selectedFactId: number | null;
+  disclosuresExpanded: boolean;
+  noteBalancesExpanded: boolean;
 };
 
 const EMPTY_FILINGS: CompanyFilingItem[] = [];
@@ -115,6 +150,13 @@ export default function CompanyFilingsPage() {
   const { companyId, detail } = useCompanyData();
   const [selectedDocumentId, setSelectedDocumentId] = useState<number | null>(null);
   const [comparisonDocumentId, setComparisonDocumentId] = useState<number | "none" | null>(null);
+  const [disclosureUiState, setDisclosureUiState] = useState<FilingDisclosureUiState>({
+    companyId,
+    documentId: null,
+    selectedFactId: null,
+    disclosuresExpanded: false,
+    noteBalancesExpanded: false,
+  });
   const [historyState, setHistoryState] = useState<FilingHistoryState>({
     companyId,
     items: [],
@@ -132,6 +174,13 @@ export default function CompanyFilingsPage() {
     companyId,
     leftDocumentId: null,
     rightDocumentId: null,
+    payload: null,
+    error: null,
+    loaded: false,
+  });
+  const [disclosureState, setDisclosureState] = useState<FilingDisclosureState>({
+    companyId,
+    documentId: null,
     payload: null,
     error: null,
     loaded: false,
@@ -259,6 +308,46 @@ export default function CompanyFilingsPage() {
   useEffect(() => {
     let active = true;
 
+    if (!effectiveSelectedDocumentId) {
+      return () => {
+        active = false;
+      };
+    }
+
+    getCompanyFilingDisclosures(companyId, effectiveSelectedDocumentId)
+      .then((payload) => {
+        if (!active) {
+          return;
+        }
+        setDisclosureState({
+          companyId,
+          documentId: effectiveSelectedDocumentId,
+          payload,
+          error: null,
+          loaded: true,
+        });
+      })
+      .catch((error) => {
+        if (!active) {
+          return;
+        }
+        setDisclosureState({
+          companyId,
+          documentId: effectiveSelectedDocumentId,
+          payload: null,
+          error: error instanceof Error ? error.message : "Failed to load filing disclosures",
+          loaded: true,
+        });
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [companyId, effectiveSelectedDocumentId]);
+
+  useEffect(() => {
+    let active = true;
+
     if (!effectiveSelectedDocumentId || !effectiveComparisonDocumentId) {
       return () => {
         active = false;
@@ -331,6 +420,20 @@ export default function CompanyFilingsPage() {
       compareState.rightDocumentId !== effectiveComparisonDocumentId ||
       !compareState.loaded);
 
+  const disclosuresPayload =
+    disclosureState.companyId === companyId && disclosureState.documentId === effectiveSelectedDocumentId
+      ? disclosureState.payload
+      : null;
+  const disclosuresError =
+    disclosureState.companyId === companyId && disclosureState.documentId === effectiveSelectedDocumentId
+      ? disclosureState.error
+      : null;
+  const disclosuresLoading =
+    Boolean(effectiveSelectedDocumentId) &&
+    (disclosureState.companyId !== companyId ||
+      disclosureState.documentId !== effectiveSelectedDocumentId ||
+      !disclosureState.loaded);
+
   const snapshotMetricMap = useMemo(() => {
     const metrics = new Map<string, CompanyFilingMetricValue>();
     for (const item of snapshotPayload?.metrics ?? []) {
@@ -386,6 +489,121 @@ export default function CompanyFilingsPage() {
 
     return ordered.filter((item) => item.metric.left_value !== null || item.metric.right_value !== null);
   }, [comparePayload]);
+
+  const groupedDisclosures = useMemo(() => {
+    const grouped = new Map<string, CompanyFilingDisclosureItem[]>();
+    for (const item of disclosuresPayload?.items ?? []) {
+      const existing = grouped.get(item.section) ?? [];
+      existing.push(item);
+      grouped.set(item.section, existing);
+    }
+    return Array.from(grouped.entries())
+      .map(([section, items]) => ({ section, items }))
+      .sort((left, right) => {
+        if (left.section === right.section) {
+          return 0;
+        }
+        if (left.section === "Note Balances") {
+          return 1;
+        }
+        if (right.section === "Note Balances") {
+          return -1;
+        }
+        return left.section.localeCompare(right.section);
+      });
+  }, [disclosuresPayload]);
+
+  const disclosureFocusGroups = useMemo<DisclosureFocusGroup[]>(() => {
+    const grouped = new Map<DisclosureFocusArea, CompanyFilingDisclosureItem[]>();
+    for (const item of disclosuresPayload?.items ?? []) {
+      const area = getDisclosureFocusArea(item);
+      if (!area) {
+        continue;
+      }
+      const existing = grouped.get(area) ?? [];
+      existing.push(item);
+      grouped.set(area, existing);
+    }
+
+    return (
+      ["director_remuneration", "dividends", "loans", "related_parties"] as DisclosureFocusArea[]
+    )
+      .map((area) => {
+        const items = grouped.get(area) ?? [];
+        if (!items.length) {
+          return null;
+        }
+        const linkedMetricLabels = Array.from(
+          new Set(items.flatMap((item) => item.linked_metric_keys.map((metricKey) => getMetricLabel(metricKey)))),
+        ).slice(0, 3);
+        return {
+          area,
+          label: getDisclosureFocusLabel(area),
+          description: getDisclosureFocusDescription(area),
+          items,
+          linkedMetricLabels,
+        };
+      })
+      .filter((item): item is DisclosureFocusGroup => Boolean(item));
+  }, [disclosuresPayload]);
+
+  const disclosureUiMatches =
+    disclosureUiState.companyId === companyId &&
+    disclosureUiState.documentId === effectiveSelectedDocumentId;
+  const selectedDisclosureFactId = disclosureUiMatches ? disclosureUiState.selectedFactId : null;
+  const disclosuresExpanded = disclosureUiMatches ? disclosureUiState.disclosuresExpanded : false;
+  const noteBalancesExpanded = disclosureUiMatches ? disclosureUiState.noteBalancesExpanded : false;
+
+  function updateDisclosureUi(
+    updater: (
+      current: Pick<FilingDisclosureUiState, "selectedFactId" | "disclosuresExpanded" | "noteBalancesExpanded">,
+    ) => Pick<FilingDisclosureUiState, "selectedFactId" | "disclosuresExpanded" | "noteBalancesExpanded">,
+  ) {
+    setDisclosureUiState((current) => {
+      const base =
+        current.companyId === companyId && current.documentId === effectiveSelectedDocumentId
+          ? {
+              selectedFactId: current.selectedFactId,
+              disclosuresExpanded: current.disclosuresExpanded,
+              noteBalancesExpanded: current.noteBalancesExpanded,
+            }
+          : {
+              selectedFactId: null,
+              disclosuresExpanded: false,
+              noteBalancesExpanded: false,
+            };
+
+      return {
+        companyId,
+        documentId: effectiveSelectedDocumentId,
+        ...updater(base),
+      };
+    });
+  }
+
+  const selectedDisclosure = useMemo(
+    () => disclosuresPayload?.items.find((item) => item.fact_id === selectedDisclosureFactId) ?? null,
+    [disclosuresPayload, selectedDisclosureFactId],
+  );
+
+  const selectedDisclosureMetricLinks = useMemo<NoteMetricLink[]>(() => {
+    if (!selectedDisclosure) {
+      return [];
+    }
+    return selectedDisclosure.linked_metric_keys
+      .map((metricKey) => {
+        const metric = snapshotMetricMap.get(metricKey) ?? null;
+        return {
+          metric_key: metricKey,
+          label: getMetricLabel(metricKey),
+          formatter: getMetricFormatter(metricKey),
+          value: metric?.value ?? null,
+          period_date: metric?.period_date ?? null,
+          source_count: metric?.source_count ?? null,
+        };
+      })
+      .sort((left, right) => left.label.localeCompare(right.label));
+  }, [selectedDisclosure, snapshotMetricMap]);
 
   return (
     <div className="flex h-full w-full flex-col space-y-6 pb-6">
@@ -569,9 +787,221 @@ export default function CompanyFilingsPage() {
                 </div>
               )}
             </div>
+
+            <div className="rounded-3xl bg-white p-6 shadow-[0_4px_24px_rgba(0,0,0,0.02)]">
+              <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-[#1c1c1c]">Notes and Tagged Disclosures</h3>
+                  <p className="mt-1 text-xs text-[#8c8c8c]">
+                    Narrative statements and note-level tagged balances captured from the selected filing.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateDisclosureUi((current) => ({
+                      ...current,
+                      disclosuresExpanded: !current.disclosuresExpanded,
+                    }))
+                  }
+                  className={`inline-flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left transition-all md:min-w-[240px] ${
+                    disclosuresExpanded
+                      ? "border border-[#c7d7ee] bg-[#eef4fb] shadow-[0_12px_24px_rgba(23,28,31,0.04)] hover:border-[#afc6e4] hover:bg-[#e7f0fb]"
+                      : "border border-[#173bab] bg-gradient-to-br from-[#00288e] to-[#1e40af] text-white shadow-[0_12px_32px_rgba(23,28,31,0.12)] hover:opacity-95"
+                  }`}
+                >
+                  <div>
+                    <div
+                      className={`text-xs font-semibold uppercase tracking-[0.12em] ${
+                        disclosuresExpanded ? "text-[#4f74a9]" : "text-[rgba(255,255,255,0.78)]"
+                      }`}
+                    >
+                      {disclosuresExpanded ? "Hide" : "Show"} disclosures
+                    </div>
+                    <div
+                      className={`mt-1 text-sm ${
+                        disclosuresExpanded ? "text-[#163a69]" : "text-white"
+                      }`}
+                    >
+                      {disclosuresPayload?.items.length ?? 0} tagged item{(disclosuresPayload?.items.length ?? 0) === 1 ? "" : "s"} across{" "}
+                      {groupedDisclosures.length} section{groupedDisclosures.length === 1 ? "" : "s"}
+                    </div>
+                  </div>
+                  <ArrowRight
+                    className={`h-4 w-4 shrink-0 transition-transform ${
+                      disclosuresExpanded ? "text-[#4f74a9]" : "text-white"
+                    } ${
+                      disclosuresExpanded ? "rotate-90" : ""
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {disclosuresExpanded ? (
+                <div className="mt-6">
+                  {disclosuresLoading ? (
+                    <EmptyState
+                      title="Loading tagged disclosures..."
+                      description="Reading narrative and dimensional facts from the selected filing."
+                    />
+                  ) : disclosuresError ? (
+                    <EmptyState title="Tagged disclosures unavailable" description={disclosuresError} />
+                  ) : groupedDisclosures.length === 0 ? (
+                    <EmptyState
+                      title="No tagged disclosures returned"
+                      description="This filing did not return narrative statements or note-level tagged balances."
+                    />
+                  ) : (
+                    <div className="space-y-6">
+                      <div className="space-y-3">
+                        <div>
+                          <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-[#7f8a98]">
+                            Targeted Note Areas
+                          </h4>
+                          <p className="mt-1 text-sm text-[#6b7280]">
+                            Curated note topics surfaced from the filing, with direct links back to mapped headline metrics
+                            where available.
+                          </p>
+                        </div>
+                        {disclosureFocusGroups.length ? (
+                          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                            {disclosureFocusGroups.map((group) => (
+                              <DisclosureFocusCard
+                                key={group.area}
+                                group={group}
+                                onSelect={() =>
+                                  updateDisclosureUi((current) => ({
+                                    ...current,
+                                    selectedFactId: group.items[0]?.fact_id ?? null,
+                                  }))
+                                }
+                              />
+                            ))}
+                          </div>
+                        ) : (
+                          <EmptyState
+                            title="No targeted note topics surfaced"
+                            description="This filing did not return tagged disclosures for director remuneration, dividends, loans, or related parties."
+                          />
+                        )}
+                      </div>
+
+                      {groupedDisclosures.map((group) =>
+                        group.section === "Note Balances" ? (
+                          <div key={group.section} className="space-y-3">
+                            <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+                              <div>
+                                <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-[#7f8a98]">
+                                  {group.section}
+                                </h4>
+                                <p className="mt-1 text-sm text-[#6b7280]">
+                                  {describeDisclosureSection(group.section)}
+                                </p>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateDisclosureUi((current) => ({
+                                    ...current,
+                                    noteBalancesExpanded: !current.noteBalancesExpanded,
+                                  }))
+                                }
+                                className={`inline-flex items-center justify-between gap-3 rounded-2xl px-4 py-3 text-left transition-all md:min-w-[220px] ${
+                                  noteBalancesExpanded
+                                    ? "border border-[#c7d7ee] bg-[#eef4fb] shadow-[0_8px_20px_rgba(23,28,31,0.03)] hover:border-[#afc6e4] hover:bg-[#e7f0fb]"
+                                    : "border border-[#d7e3f4] bg-[#f4f8fd] hover:border-[#c2d5ec] hover:bg-white"
+                                }`}
+                              >
+                                <div>
+                                  <div
+                                    className={`text-xs font-semibold uppercase tracking-[0.12em] ${
+                                      noteBalancesExpanded ? "text-[#4f74a9]" : "text-[#7f8a98]"
+                                    }`}
+                                  >
+                                    {noteBalancesExpanded ? "Hide" : "Show"} note balances
+                                  </div>
+                                  <div
+                                    className={`mt-1 text-sm ${
+                                      noteBalancesExpanded ? "text-[#163a69]" : "text-[#334155]"
+                                    }`}
+                                  >
+                                    {group.items.length} tagged balance{group.items.length === 1 ? "" : "s"}
+                                  </div>
+                                </div>
+                                <ArrowRight
+                                  className={`h-4 w-4 shrink-0 transition-transform ${
+                                    noteBalancesExpanded ? "text-[#4f74a9]" : "text-[#94a3b8]"
+                                  } ${
+                                    noteBalancesExpanded ? "rotate-90" : ""
+                                  }`}
+                                />
+                              </button>
+                            </div>
+                            {noteBalancesExpanded ? (
+                              <div className="space-y-3">
+                                {group.items.map((item) => (
+                                  <DisclosureCard
+                                    key={item.fact_id}
+                                    item={item}
+                                    selected={item.fact_id === selectedDisclosureFactId}
+                                    onSelect={() =>
+                                      updateDisclosureUi((current) => ({
+                                        ...current,
+                                        selectedFactId: item.fact_id,
+                                      }))
+                                    }
+                                  />
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <div key={group.section} className="space-y-3">
+                            <div>
+                              <h4 className="text-xs font-semibold uppercase tracking-[0.16em] text-[#7f8a98]">{group.section}</h4>
+                              <p className="mt-1 text-sm text-[#6b7280]">
+                                {describeDisclosureSection(group.section)}
+                              </p>
+                            </div>
+                            <div className="space-y-3">
+                              {group.items.map((item) => (
+                                <DisclosureCard
+                                  key={item.fact_id}
+                                  item={item}
+                                  selected={item.fact_id === selectedDisclosureFactId}
+                                  onSelect={() =>
+                                    updateDisclosureUi((current) => ({
+                                      ...current,
+                                      selectedFactId: item.fact_id,
+                                    }))
+                                  }
+                                />
+                              ))}
+                            </div>
+                          </div>
+                        ),
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
           </div>
         </div>
       </section>
+
+      <NoteDetailDrawer
+        item={selectedDisclosure}
+        filingSourcePath={selectedFiling?.source_path ?? null}
+        linkedMetrics={selectedDisclosureMetricLinks}
+        open={Boolean(selectedDisclosure)}
+        onClose={() =>
+          updateDisclosureUi((current) => ({
+            ...current,
+            selectedFactId: null,
+          }))
+        }
+      />
     </div>
   );
 }
@@ -628,6 +1058,135 @@ function SnapshotMetricCard({ label, value, hint }: { label: string; value: stri
       </div>
       <div className="mt-3 text-2xl font-semibold tracking-tight text-[#1c1c1c]">{value}</div>
     </div>
+  );
+}
+
+function DisclosureFocusCard({
+  group,
+  onSelect,
+}: {
+  group: DisclosureFocusGroup;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className="w-full rounded-2xl border border-[#e7edf5] bg-[#fbfcfe] px-5 py-5 text-left transition-colors hover:border-[#d4dfed] hover:bg-white"
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-[#1c1c1c]">{group.label}</div>
+          <div className="mt-2 text-sm leading-6 text-[#6b7280]">{group.description}</div>
+        </div>
+        <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-[#94a3b8]" />
+      </div>
+      <div className="mt-5 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <div>
+          <div className="tabular-nums text-3xl font-semibold tracking-tight text-[#1c1c1c]">
+            {group.items.length}
+          </div>
+          <div className="mt-1 text-xs uppercase tracking-[0.12em] text-[#7f8a98]">
+            Tagged disclosure{group.items.length === 1 ? "" : "s"}
+          </div>
+        </div>
+        {group.linkedMetricLabels.length ? (
+          <div className="flex flex-wrap gap-2 md:justify-end">
+            {group.linkedMetricLabels.map((label) => (
+              <span
+                key={`${group.area}:${label}`}
+                className="rounded-full bg-[#eef4fb] px-2.5 py-1 text-[11px] font-medium text-[#2f5f9f]"
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </button>
+  );
+}
+
+function DisclosureCard({
+  item,
+  selected,
+  onSelect,
+}: {
+  item: CompanyFilingDisclosureItem;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const focusArea = getDisclosureFocusArea(item);
+  const value = item.is_narrative
+    ? item.value_text ?? "—"
+    : item.numeric_value !== null
+      ? formatCompactCurrency(item.numeric_value)
+      : item.value_text ?? "—";
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={`w-full rounded-2xl border px-5 py-4 text-left transition-colors ${
+        selected
+          ? "border-[#cdddf4] bg-[#eef4fb]"
+          : "border-[#eef2f7] bg-[#fbfcfe] hover:border-[#dbe6f4] hover:bg-white"
+      }`}
+    >
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="text-sm font-semibold text-[#1c1c1c]">{item.label}</div>
+            {focusArea ? <Badge label={getDisclosureFocusLabel(focusArea)} tone="blue" /> : null}
+            {item.linked_metric_keys.length ? (
+              <Badge
+                label={`${item.linked_metric_keys.length} linked metric${item.linked_metric_keys.length === 1 ? "" : "s"}`}
+                tone="slate"
+              />
+            ) : null}
+          </div>
+          <div className="mt-1 text-xs text-[#8c8c8c]">{item.raw_tag}</div>
+          {item.linked_metric_keys.length ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {item.linked_metric_keys.slice(0, 3).map((metricKey) => (
+                <span
+                  key={`${item.fact_id}:metric:${metricKey}`}
+                  className="rounded-full bg-[#eef4fb] px-2.5 py-1 text-[11px] font-medium text-[#2f5f9f]"
+                >
+                  {getMetricLabel(metricKey)}
+                </span>
+              ))}
+              {item.linked_metric_keys.length > 3 ? (
+                <span className="rounded-full bg-[#f1f5f9] px-2.5 py-1 text-[11px] font-medium text-[#64748b]">
+                  +{item.linked_metric_keys.length - 3} more
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+          {item.dimensions.length ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {item.dimensions.map((dimension) => (
+                <span
+                  key={`${item.fact_id}-${dimension}`}
+                  className="rounded-full bg-[#eef4fb] px-2.5 py-1 text-[11px] font-medium text-[#2f5f9f]"
+                >
+                  {dimension}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </div>
+        <div className="min-w-[180px] text-left lg:text-right">
+          <div className="flex items-center justify-between gap-3 lg:justify-end">
+            {item.period_date ? <div className="text-[11px] text-[#8c8c8c]">As of {formatDate(item.period_date)}</div> : null}
+            <ArrowRight className="h-4 w-4 shrink-0 text-[#94a3b8]" />
+          </div>
+          <div className={`mt-1 ${item.is_narrative ? "text-sm leading-6 text-[#334155]" : "text-lg font-semibold tracking-tight text-[#1c1c1c]"}`}>
+            {value}
+          </div>
+        </div>
+      </div>
+    </button>
   );
 }
 
@@ -731,11 +1290,27 @@ function formatFilingOptionLabel(item: CompanyFilingItem): string {
   return `${periodLabel} • ${item.source_path}`;
 }
 
-function formatMetricLabel(metricKey: string): string {
-  return metricKey
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
+function describeDisclosureSection(section: string): string {
+  switch (section) {
+    case "Director Statements":
+      return "Compliance and audit-exemption statements delivered with the filing.";
+    case "Note Balances":
+      return "Dimensional note balances and maturity splits reported alongside the headline numbers.";
+    case "Reporting Context":
+      return "Tagged dates and filing context disclosures taken from the selected report.";
+    case "People":
+      return "Workforce or officer-related disclosures reported in the filing.";
+    default:
+      return "Additional tagged disclosures captured from the filing.";
+  }
+}
+
+function getMetricLabel(metricKey: string): string {
+  return METRIC_CONFIG_BY_KEY.get(metricKey)?.label ?? formatMetricLabel(metricKey);
+}
+
+function getMetricFormatter(metricKey: string): "currency" | "integer" {
+  return METRIC_CONFIG_BY_KEY.get(metricKey)?.formatter ?? "currency";
 }
 
 function coerceNumber(value: string | number | null | undefined): number | null {

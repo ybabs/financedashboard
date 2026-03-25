@@ -1,3 +1,4 @@
+from datetime import date
 from sqlalchemy.ext.asyncio import AsyncSession
 from dataclasses import dataclass
 from decimal import Decimal
@@ -22,6 +23,16 @@ class CompareSnapshot:
     cash: Decimal | None
     psc_count: int
     current_ratio: float | None
+
+
+@dataclass(slots=True)
+class CompanyFinancialRecency:
+    company_accounts_made_up_to: date | None
+    latest_metric_period_date: date | None
+    latest_filing_period_date: date | None
+    latest_filing_backed_period_date: date | None
+    effective_accounts_made_up_to: date | None
+    source: str
 
 
 @dataclass(slots=True)
@@ -61,6 +72,78 @@ class CompaniesRepository:
             if row.metric_key in {"turnover", "net_assets", "current_assets", "creditors", "cash"}
             and row.value is not None
         }
+
+    async def _get_latest_metric_period_date(self, company_number: str) -> date | None:
+        stmt = text(
+            """
+            SELECT MAX(period_date) AS period_date
+            FROM financial_metric_series
+            WHERE company_number = :company_number
+            """
+        )
+        try:
+            return (await self._session.execute(stmt, {"company_number": company_number})).scalar_one_or_none()
+        except ProgrammingError:
+            return None
+
+    async def _get_latest_filing_period_date(self, company_number: str) -> date | None:
+        stmt = text(
+            """
+            SELECT MAX(period_date) AS period_date
+            FROM (
+              SELECT COALESCE(c.period_instant, c.period_end) AS period_date
+              FROM ixbrl_documents d
+              LEFT JOIN ixbrl_contexts c
+                ON c.document_id = d.id
+              WHERE d.company_number = :company_number
+            ) periods
+            """
+        )
+        try:
+            return (await self._session.execute(stmt, {"company_number": company_number})).scalar_one_or_none()
+        except ProgrammingError:
+            return None
+
+    async def get_financial_recency(
+        self,
+        company_number: str,
+        company_accounts_made_up_to: date | None,
+    ) -> CompanyFinancialRecency:
+        latest_metric_period_date = await self._get_latest_metric_period_date(company_number)
+        latest_filing_period_date = await self._get_latest_filing_period_date(company_number)
+        latest_filing_backed_period_date = _pick_latest_date(latest_metric_period_date, latest_filing_period_date)
+        effective_accounts_made_up_to = _pick_latest_date(
+            company_accounts_made_up_to,
+            latest_filing_backed_period_date,
+        )
+
+        if effective_accounts_made_up_to is None:
+            source = "unknown"
+        elif (
+            company_accounts_made_up_to is not None
+            and latest_filing_backed_period_date is not None
+            and company_accounts_made_up_to == latest_filing_backed_period_date
+        ):
+            source = "aligned"
+        elif (
+            latest_filing_backed_period_date is not None
+            and (
+                company_accounts_made_up_to is None
+                or latest_filing_backed_period_date > company_accounts_made_up_to
+            )
+        ):
+            source = "filing_backed"
+        else:
+            source = "company"
+
+        return CompanyFinancialRecency(
+            company_accounts_made_up_to=company_accounts_made_up_to,
+            latest_metric_period_date=latest_metric_period_date,
+            latest_filing_period_date=latest_filing_period_date,
+            latest_filing_backed_period_date=latest_filing_backed_period_date,
+            effective_accounts_made_up_to=effective_accounts_made_up_to,
+            source=source,
+        )
 
     async def search(self, q: str, limit: int = 10, offset: int = 0):
         sim_score = func.similarity(Company.name, q)
@@ -292,14 +375,16 @@ class CompaniesRepository:
         psc_stmt = select(func.count()).select_from(PscPerson).where(PscPerson.company_number == company_number)
         psc_count = (await self._session.execute(psc_stmt)).scalar_one()
         metric_values = await self._get_latest_metric_values(company_number)
+        financial_recency = await self.get_financial_recency(company_number, company.last_accounts_made_up_to)
+        prefer_metric_values = financial_recency.source == "filing_backed"
 
-        turnover = company.turnover if company.turnover is not None else metric_values.get("turnover")
-        net_assets = company.net_assets if company.net_assets is not None else metric_values.get("net_assets")
+        turnover = _pick_preferred_metric_value(company.turnover, metric_values, "turnover", prefer_metric_values)
+        net_assets = _pick_preferred_metric_value(company.net_assets, metric_values, "net_assets", prefer_metric_values)
         current_assets = (
-            company.current_assets if company.current_assets is not None else metric_values.get("current_assets")
+            _pick_preferred_metric_value(company.current_assets, metric_values, "current_assets", prefer_metric_values)
         )
-        creditors = company.creditors if company.creditors is not None else metric_values.get("creditors")
-        cash = company.cash if company.cash is not None else metric_values.get("cash")
+        creditors = _pick_preferred_metric_value(company.creditors, metric_values, "creditors", prefer_metric_values)
+        cash = _pick_preferred_metric_value(company.cash, metric_values, "cash", prefer_metric_values)
 
         current_ratio = None
         if current_assets is not None and creditors not in (None, 0):
@@ -317,6 +402,7 @@ class CompaniesRepository:
             "cash": cash,
             "psc_count": int(psc_count or 0),
             "current_ratio": current_ratio,
+            "financial_recency": financial_recency,
         }
 
     async def compare_companies(self, left: str, right: str):
@@ -333,11 +419,8 @@ class CompaniesRepository:
         psc_counts = {row.company_number: int(row.count) for row in (await self._session.execute(psc_counts_stmt)).all()}
         left_metrics = await self._get_latest_metric_values(left)
         right_metrics = await self._get_latest_metric_values(right)
-
-        def _coalesce(company_value: Decimal | None, metric_values: dict[str, Decimal], metric_key: str) -> Decimal | None:
-            if company_value is not None:
-                return company_value
-            return metric_values.get(metric_key)
+        left_recency = await self.get_financial_recency(left, left_company.last_accounts_made_up_to)
+        right_recency = await self.get_financial_recency(right, right_company.last_accounts_made_up_to)
 
         def _ratio(current_assets: Decimal | None, creditors: Decimal | None) -> float | None:
             if current_assets is None or creditors in (None, 0):
@@ -347,12 +430,17 @@ class CompaniesRepository:
             except Exception:
                 return None
 
-        def _snapshot(company: Company, metric_values: dict[str, Decimal]) -> CompareSnapshot:
-            turnover = _coalesce(company.turnover, metric_values, "turnover")
-            net_assets = _coalesce(company.net_assets, metric_values, "net_assets")
-            current_assets = _coalesce(company.current_assets, metric_values, "current_assets")
-            creditors = _coalesce(company.creditors, metric_values, "creditors")
-            cash = _coalesce(company.cash, metric_values, "cash")
+        def _snapshot(
+            company: Company,
+            metric_values: dict[str, Decimal],
+            recency: CompanyFinancialRecency,
+        ) -> CompareSnapshot:
+            prefer_metric_values = recency.source == "filing_backed"
+            turnover = _pick_preferred_metric_value(company.turnover, metric_values, "turnover", prefer_metric_values)
+            net_assets = _pick_preferred_metric_value(company.net_assets, metric_values, "net_assets", prefer_metric_values)
+            current_assets = _pick_preferred_metric_value(company.current_assets, metric_values, "current_assets", prefer_metric_values)
+            creditors = _pick_preferred_metric_value(company.creditors, metric_values, "creditors", prefer_metric_values)
+            cash = _pick_preferred_metric_value(company.cash, metric_values, "cash", prefer_metric_values)
             return CompareSnapshot(
                 company_number=company.company_number,
                 name=company.name,
@@ -368,11 +456,33 @@ class CompaniesRepository:
                 current_ratio=_ratio(current_assets, creditors),
             )
 
-        return _snapshot(left_company, left_metrics), _snapshot(right_company, right_metrics)
+        return _snapshot(left_company, left_metrics, left_recency), _snapshot(right_company, right_metrics, right_recency)
 
 
 def _normalize_psc_name(value: str | None) -> str:
     return " ".join((value or "").strip().lower().split())
+
+
+def _pick_latest_date(left: date | None, right: date | None) -> date | None:
+    if left is None:
+        return right
+    if right is None:
+        return left
+    return right if right > left else left
+
+
+def _pick_preferred_metric_value(
+    company_value: Decimal | None,
+    metric_values: dict[str, Decimal],
+    metric_key: str,
+    prefer_metric_values: bool,
+) -> Decimal | None:
+    metric_value = metric_values.get(metric_key)
+    if prefer_metric_values and metric_value is not None:
+        return metric_value
+    if company_value is not None:
+        return company_value
+    return metric_value
 
 
 def _row_at(row, index: int, attr: str):
